@@ -141,7 +141,15 @@ async function persistInbound(
     });
     await tx.conversation.update({
       where: { id: convo.id },
-      data: { lastMessageAt: new Date(), status: "OPEN", customerName: name ?? convo.customerName },
+      // A new inbound message reopens the conversation, clears any snooze, and
+      // starts the "waiting on us" clock used by reporting/SLA.
+      data: {
+        lastMessageAt: new Date(),
+        status: "OPEN",
+        snoozedUntil: null,
+        waitingSince: new Date(),
+        customerName: name ?? convo.customerName,
+      },
     });
     return convo.id;
   });

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { ConversationStatus } from "@prisma/client";
+import type { ConversationStatus, ConversationPriority } from "@prisma/client";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
@@ -71,14 +71,34 @@ export async function replyToConversation(
 ): Promise<ReplyState> {
   const ctx = await requireAuth();
   const body = String(formData.get("body") ?? "").trim();
+  const isNote = String(formData.get("kind") ?? "") === "note";
   const file = formData.get("file");
   const hasFile = file instanceof File && file.size > 0;
-  if (!body && !hasFile) return { error: "Message is empty." };
+  if (!body && !hasFile) return { error: isNote ? "Note is empty." : "Message is empty." };
 
   const convo = await withTenant(ctx.workspaceId, (tx) =>
     tx.conversation.findFirst({ where: { id: conversationId } }),
   );
   if (!convo) return { error: "Conversation not found." };
+
+  // Internal notes are visible only to the team — never sent to the customer.
+  if (isNote) {
+    await withTenant(ctx.workspaceId, (tx) =>
+      tx.message.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          conversationId,
+          direction: "OUTBOUND",
+          private: true,
+          authorUserId: ctx.userId,
+          body,
+          type: "text",
+        },
+      }),
+    );
+    revalidatePath("/app/inbox");
+    return {};
+  }
 
   const channel = await prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } });
   if (!channel) return { error: "Connect a WhatsApp channel first (Inbox → Settings)." };
@@ -121,6 +141,7 @@ export async function replyToConversation(
         workspaceId: ctx.workspaceId,
         conversationId,
         direction: "OUTBOUND",
+        authorUserId: ctx.userId,
         body,
         type,
         mediaId,
@@ -129,7 +150,15 @@ export async function replyToConversation(
         waMessageId: waId,
       },
     });
-    await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
+    // An agent reply clears the "waiting on us" clock and records first-response time.
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: {
+        lastMessageAt: new Date(),
+        waitingSince: null,
+        ...(convo.firstReplyAt ? {} : { firstReplyAt: new Date() }),
+      },
+    });
   });
 
   revalidatePath("/app/inbox");
@@ -147,10 +176,54 @@ export async function assignAgent(conversationId: string, agentId: string): Prom
   revalidatePath("/app/inbox");
 }
 
+export async function assignConversationUser(conversationId: string, userId: string): Promise<void> {
+  const ctx = await requireAuth();
+  // Guard: only assign to an actual member of this workspace.
+  if (userId) {
+    const member = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: ctx.workspaceId, userId } },
+    });
+    if (!member) return;
+  }
+  await withTenant(ctx.workspaceId, (tx) =>
+    tx.conversation.update({ where: { id: conversationId }, data: { assignedUserId: userId || null } }),
+  );
+  revalidatePath("/app/inbox");
+}
+
 export async function setConversationStatus(conversationId: string, status: ConversationStatus): Promise<void> {
   const ctx = await requireAuth();
   await withTenant(ctx.workspaceId, (tx) =>
-    tx.conversation.update({ where: { id: conversationId }, data: { status } }),
+    tx.conversation.update({
+      where: { id: conversationId },
+      // Leaving SNOOZED/resolving clears the snooze timer.
+      data: { status, ...(status === "SNOOZED" ? {} : { snoozedUntil: null }) },
+    }),
+  );
+  revalidatePath("/app/inbox");
+}
+
+export async function setConversationPriority(
+  conversationId: string,
+  priority: ConversationPriority,
+): Promise<void> {
+  const ctx = await requireAuth();
+  await withTenant(ctx.workspaceId, (tx) =>
+    tx.conversation.update({ where: { id: conversationId }, data: { priority } }),
+  );
+  revalidatePath("/app/inbox");
+}
+
+/** Snooze a conversation for N minutes; it auto-reopens when a new message arrives or the timer lapses. */
+export async function snoozeConversation(conversationId: string, minutes: number): Promise<void> {
+  const ctx = await requireAuth();
+  const mins = Math.max(1, Math.min(minutes, 60 * 24 * 30)); // 1 min … 30 days
+  const until = new Date(Date.now() + mins * 60_000);
+  await withTenant(ctx.workspaceId, (tx) =>
+    tx.conversation.update({
+      where: { id: conversationId },
+      data: { status: "SNOOZED", snoozedUntil: until },
+    }),
   );
   revalidatePath("/app/inbox");
 }

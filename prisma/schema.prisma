@@ -324,16 +324,23 @@ model Conversation {
   contactId       String?            @map("contact_id") @db.Uuid
   customerPhone   String             @map("customer_phone")
   customerName    String?            @map("customer_name")
-  status          ConversationStatus @default(OPEN)
-  assignedAgentId String?            @map("assigned_agent_id") @db.Uuid
-  lastMessageAt   DateTime           @default(now()) @map("last_message_at") @db.Timestamptz
-  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz
-  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  status          ConversationStatus   @default(OPEN)
+  priority        ConversationPriority @default(NONE)
+  assignedAgentId String?              @map("assigned_agent_id") @db.Uuid
+  assignedUserId  String?              @map("assigned_user_id") @db.Uuid
+  snoozedUntil    DateTime?            @map("snoozed_until") @db.Timestamptz
+  firstReplyAt    DateTime?            @map("first_reply_at") @db.Timestamptz
+  waitingSince    DateTime?            @map("waiting_since") @db.Timestamptz
+  customAttributes Json                @default("{}") @map("custom_attributes")
+  lastMessageAt   DateTime             @default(now()) @map("last_message_at") @db.Timestamptz
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz
+  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   messages        Message[]
 
   @@index([workspaceId, status, lastMessageAt])
   @@index([workspaceId, customerPhone])
+  @@index([workspaceId, assignedUserId])
   @@map("conversations")
 }
 
@@ -344,6 +351,8 @@ model Message {
   direction      MessageDirection
   body           String
   type           String           @default("text") // text | image | video | audio | document | sticker
+  private        Boolean          @default(false) // internal note, not sent to the customer
+  authorUserId   String?          @map("author_user_id") @db.Uuid
   mediaId        String?          @map("media_id")
   mediaMime      String?          @map("media_mime")
   mediaFilename  String?          @map("media_filename")
@@ -381,7 +390,17 @@ model Workflow {
 
 enum ConversationStatus {
   OPEN
-  CLOSED
+  PENDING
+  SNOOZED
+  RESOLVED
+}
+
+enum ConversationPriority {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }
 
 enum MessageDirection {
