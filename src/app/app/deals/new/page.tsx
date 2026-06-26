@@ -7,9 +7,15 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewDealPage() {
+export default async function NewDealPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ companyId?: string }>;
+}) {
   const ctx = await requireAuth();
-  const { pipelines, companies } = await withTenant(ctx.workspaceId, async (tx) => {
+  const { companyId } = await searchParams;
+
+  const data = await withTenant(ctx.workspaceId, async (tx) => {
     const pls = await tx.pipeline.findMany({
       orderBy: { position: "asc" },
       include: { stages: { orderBy: { position: "asc" }, select: { id: true, name: true } } },
@@ -19,18 +25,40 @@ export default async function NewDealPage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     });
+    const contactRows = await tx.contact.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      select: { id: true, firstName: true, lastName: true, email: true, companyId: true },
+    });
+    const contacts = contactRows.map((c) => ({
+      id: c.id,
+      label: [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email || "Unnamed",
+    }));
+    // When opened from a company, auto-select that company's contacts.
+    const defaultContactIds = companyId ? contactRows.filter((c) => c.companyId === companyId).map((c) => c.id) : [];
     return {
       pipelines: pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages })),
       companies,
+      contacts,
+      defaultContactIds,
     };
   });
 
   return (
     <div>
-      <PageHeader title="New deal" description="Add a deal to your pipeline." />
+      <PageHeader title="New deal" description="Add a deal and associate a company + contacts." />
       <Card>
         <CardContent className="pt-6">
-          <DealForm action={createDeal} pipelines={pipelines} companies={companies} submitLabel="Create deal" />
+          <DealForm
+            action={createDeal}
+            pipelines={data.pipelines}
+            companies={data.companies}
+            contacts={data.contacts}
+            defaultContactIds={data.defaultContactIds}
+            defaults={companyId ? { companyId } : undefined}
+            submitLabel="Create deal"
+          />
         </CardContent>
       </Card>
     </div>

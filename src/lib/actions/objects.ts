@@ -54,6 +54,22 @@ export async function createObjectDefinition(_prev: FormState, formData: FormDat
   redirect(`/app/objects/${slug}`);
 }
 
+export async function updateObjectDefinition(id: string, formData: FormData): Promise<void> {
+  const ctx = await requireAuth();
+  if (!canManageWorkspace(ctx.role)) return;
+  const nameSingular = String(formData.get("nameSingular") ?? "").trim();
+  const namePlural = String(formData.get("namePlural") ?? "").trim();
+  if (!nameSingular || !namePlural) return;
+  let slug = "";
+  await withTenant(ctx.workspaceId, async (tx) => {
+    // slug (URL) is intentionally kept stable on rename
+    const def = await tx.objectDefinition.update({ where: { id }, data: { nameSingular, namePlural } });
+    slug = def.slug;
+  });
+  revalidatePath("/app/objects");
+  if (slug) revalidatePath(`/app/objects/${slug}`);
+}
+
 export async function deleteObjectDefinition(id: string): Promise<void> {
   const ctx = await requireAuth();
   if (!canManageWorkspace(ctx.role)) return;

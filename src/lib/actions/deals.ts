@@ -48,6 +48,21 @@ function parseAmount(raw?: string): string | null {
   return n.toFixed(2);
 }
 
+async function syncDealContacts(
+  tx: Parameters<Parameters<typeof withTenant>[1]>[0],
+  workspaceId: string,
+  dealId: string,
+  contactIds: string[],
+): Promise<void> {
+  await tx.dealContact.deleteMany({ where: { dealId } });
+  if (contactIds.length > 0) {
+    await tx.dealContact.createMany({
+      data: contactIds.map((contactId) => ({ workspaceId, dealId, contactId })),
+      skipDuplicates: true,
+    });
+  }
+}
+
 export async function createDeal(_prev: FormState, formData: FormData): Promise<FormState> {
   const ctx = await requireAuth();
   const parsed = readDeal(formData);
@@ -64,7 +79,7 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
         const company = await tx.company.findFirst({ where: { id: v.companyId, deletedAt: null } });
         if (!company) throw new Error("COMPANY_NOT_FOUND");
       }
-      return tx.deal.create({
+      const deal = await tx.deal.create({
         data: {
           workspaceId: ctx.workspaceId,
           title: v.title,
@@ -77,6 +92,8 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
           expectedCloseAt: v.expectedCloseAt ? new Date(v.expectedCloseAt) : null,
         },
       });
+      await syncDealContacts(tx, ctx.workspaceId, deal.id, formData.getAll("contactIds").map(String).filter(Boolean));
+      return deal;
     });
     after(() =>
       runWorkflows(ctx.workspaceId, "deal_created", { dealId: created.id, recordName: v.title }).catch((e) =>
@@ -127,6 +144,7 @@ export async function updateDeal(
           expectedCloseAt: v.expectedCloseAt ? new Date(v.expectedCloseAt) : null,
         },
       });
+      await syncDealContacts(tx, ctx.workspaceId, id, formData.getAll("contactIds").map(String).filter(Boolean));
     });
   } catch (e) {
     if (e instanceof Error && e.message === "STAGE_NOT_FOUND") return { error: "Selected stage was not found." };

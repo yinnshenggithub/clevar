@@ -56,6 +56,7 @@ model Workspace {
   objectDefinitions ObjectDefinition[]
   customFieldDefs   CustomFieldDef[]
   customRecords     CustomRecord[]
+  dealContacts      DealContact[]
 
   @@map("workspaces")
 }
@@ -125,6 +126,7 @@ model Contact {
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   company      Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  dealContacts DealContact[]
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, companyId])
@@ -181,6 +183,7 @@ model Deal {
   pipeline        Pipeline   @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
   stage           Stage      @relation(fields: [stageId], references: [id], onDelete: Restrict)
   company         Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  dealContacts    DealContact[]
 
   @@index([workspaceId, pipelineId, stageId])
   @@index([workspaceId, status])
@@ -384,6 +387,21 @@ enum ConversationStatus {
 enum MessageDirection {
   INBOUND
   OUTBOUND
+}
+
+model DealContact {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  dealId      String    @map("deal_id") @db.Uuid
+  contactId   String    @map("contact_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deal        Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, contactId])
+  @@index([workspaceId, contactId])
+  @@map("deal_contacts")
 }
 
 enum WorkspaceRole {

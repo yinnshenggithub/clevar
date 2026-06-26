@@ -3,12 +3,14 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Table2 } from "lucide-react";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
-import { deleteField, deleteObjectDefinition } from "@/lib/actions/objects";
+import { deleteField, deleteObjectDefinition, updateObjectDefinition } from "@/lib/actions/objects";
 import { FIELD_TYPE_LABELS, relationTarget, isRelationType, type FieldType } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { FieldForm } from "@/components/app/field-form";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -54,6 +56,28 @@ export default async function ManageObjectPage({ params }: { params: Promise<{ s
           </div>
         }
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Object name</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            action={updateObjectDefinition.bind(null, def.id)}
+            className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="nameSingular">Singular</Label>
+              <Input id="nameSingular" name="nameSingular" defaultValue={def.nameSingular} required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="namePlural">Plural</Label>
+              <Input id="namePlural" name="namePlural" defaultValue={def.namePlural} required />
+            </div>
+            <Button type="submit">Rename</Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

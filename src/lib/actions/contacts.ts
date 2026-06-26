@@ -21,6 +21,7 @@ const contactSchema = z.object({
   phoneRegion: z.string().max(2).optional(),
   jobTitle: z.string().max(160).optional(),
   companyId: z.string().uuid().optional().or(z.literal("")),
+  newCompanyName: z.string().max(160).optional(),
 });
 
 function readContact(formData: FormData) {
@@ -32,15 +33,33 @@ function readContact(formData: FormData) {
     phoneRegion: formData.get("phoneRegion") || undefined,
     jobTitle: formData.get("jobTitle") || undefined,
     companyId: formData.get("companyId") || "",
+    newCompanyName: formData.get("newCompanyName") || undefined,
   });
 }
 
-async function assertCompanyInWorkspace(
-  tx: Parameters<Parameters<typeof withTenant>[1]>[0],
-  companyId: string,
-): Promise<boolean> {
-  const c = await tx.company.findFirst({ where: { id: companyId, deletedAt: null } });
-  return Boolean(c);
+type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
+
+/** Resolves the contact's company: create a new one by name, or validate the picked id. */
+async function resolveCompany(
+  tx: Tx,
+  workspaceId: string,
+  v: { companyId?: string; newCompanyName?: string },
+): Promise<string | null> {
+  const name = v.newCompanyName?.trim();
+  if (name) {
+    const existing = await tx.company.findFirst({
+      where: { name: { equals: name, mode: "insensitive" }, deletedAt: null },
+    });
+    if (existing) return existing.id;
+    const created = await tx.company.create({ data: { workspaceId, name } });
+    return created.id;
+  }
+  if (v.companyId) {
+    const c = await tx.company.findFirst({ where: { id: v.companyId, deletedAt: null } });
+    if (!c) throw new Error("COMPANY_NOT_FOUND");
+    return v.companyId;
+  }
+  return null;
 }
 
 export async function createContact(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -63,9 +82,7 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
 
   try {
     const created = await withTenant(ctx.workspaceId, async (tx) => {
-      if (v.companyId && !(await assertCompanyInWorkspace(tx, v.companyId))) {
-        throw new Error("COMPANY_NOT_FOUND");
-      }
+      const companyId = await resolveCompany(tx, ctx.workspaceId, v);
       return tx.contact.create({
         data: {
           workspaceId: ctx.workspaceId,
@@ -74,7 +91,7 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
           email: v.email || null,
           phone,
           jobTitle: v.jobTitle || null,
-          companyId: v.companyId || null,
+          companyId,
         },
       });
     });
@@ -116,9 +133,7 @@ export async function updateContact(
 
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
-      if (v.companyId && !(await assertCompanyInWorkspace(tx, v.companyId))) {
-        throw new Error("COMPANY_NOT_FOUND");
-      }
+      const companyId = await resolveCompany(tx, ctx.workspaceId, v);
       await tx.contact.update({
         where: { id },
         data: {
@@ -127,7 +142,7 @@ export async function updateContact(
           email: v.email || null,
           phone,
           jobTitle: v.jobTitle || null,
-          companyId: v.companyId || null,
+          companyId,
         },
       });
     });

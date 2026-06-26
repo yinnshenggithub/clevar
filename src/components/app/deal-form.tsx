@@ -28,12 +28,16 @@ export function DealForm({
   action,
   pipelines,
   companies,
+  contacts = [],
+  defaultContactIds = [],
   defaults,
   submitLabel,
 }: {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
   pipelines: PipelineOption[];
   companies: { id: string; name: string }[];
+  contacts?: { id: string; label: string }[];
+  defaultContactIds?: string[];
   defaults?: DealDefaults;
   submitLabel: string;
 }) {
@@ -111,6 +115,24 @@ export function DealForm({
             defaultValue={defaults?.expectedCloseAt ?? ""}
           />
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="contactIds">Contacts</Label>
+        <select
+          id="contactIds"
+          name="contactIds"
+          multiple
+          defaultValue={defaultContactIds}
+          className="flex min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          {contacts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">Hold ⌘ / Ctrl to select multiple.</p>
       </div>
 
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}

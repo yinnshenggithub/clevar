@@ -85,3 +85,22 @@ export async function deleteCompany(id: string): Promise<void> {
   revalidatePath("/app/companies");
   redirect("/app/companies");
 }
+
+/** Associate an existing contact with this company (sets contact.companyId). */
+export async function addContactToCompany(companyId: string, formData: FormData): Promise<void> {
+  const ctx = await requireAuth();
+  const contactId = String(formData.get("contactId") ?? "");
+  if (!contactId) return;
+  await withTenant(ctx.workspaceId, (tx) =>
+    tx.contact.updateMany({ where: { id: contactId, deletedAt: null }, data: { companyId } }),
+  );
+  revalidatePath(`/app/companies/${companyId}`);
+}
+
+export async function removeContactFromCompany(companyId: string, contactId: string): Promise<void> {
+  const ctx = await requireAuth();
+  await withTenant(ctx.workspaceId, (tx) =>
+    tx.contact.updateMany({ where: { id: contactId, companyId }, data: { companyId: null } }),
+  );
+  revalidatePath(`/app/companies/${companyId}`);
+}

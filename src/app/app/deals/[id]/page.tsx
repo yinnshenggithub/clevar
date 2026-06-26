@@ -38,12 +38,29 @@ export default async function DealDetailPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     });
+    const contactRows = await tx.contact.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+    const dc = await tx.dealContact.findMany({ where: { dealId: id }, select: { contactId: true } });
     const linked = await getLinkedRecords(tx, "deal", id);
-    return { deal, pipelines: pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages })), companies, linked };
+    return {
+      deal,
+      pipelines: pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages })),
+      companies,
+      contacts: contactRows.map((c) => ({
+        id: c.id,
+        label: [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email || "Unnamed",
+      })),
+      defaultContactIds: dc.map((x) => x.contactId),
+      linked,
+    };
   });
 
   if (!data) notFound();
-  const { deal, pipelines, companies, linked } = data;
+  const { deal, pipelines, companies, contacts, defaultContactIds, linked } = data;
 
   return (
     <div className="space-y-6">
@@ -61,6 +78,8 @@ export default async function DealDetailPage({
             action={updateDeal.bind(null, id)}
             pipelines={pipelines}
             companies={companies}
+            contacts={contacts}
+            defaultContactIds={defaultContactIds}
             defaults={{
               title: deal.title,
               amount: deal.amount ? Number(deal.amount).toString() : "",

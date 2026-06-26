@@ -84,6 +84,7 @@ export function ContactForm({
               </option>
             ))}
           </Select>
+          <Input name="newCompanyName" placeholder="…or type a new company to create it" />
         </div>
       </div>
 
