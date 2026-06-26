@@ -70,7 +70,7 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - [x] **W4 — Actor metadata + field rules.** created_by/updated_by (Uuid) on Company/Contact/Deal/CustomRecord; CustomFieldDef + `required`, `defaultValue`. Enforce in actions; defaults prefilled. → `269c514`, migration 14. Actor *display* + diffs deferred to W11 (audit). Field-reorder dropped (not core).
 - [x] **W5 — Tasks + activity timeline.** Task model (title, due, status, assignee, parent link). ActivityEvent feed shown on contact/company/deal detail; global /app/tasks page; notes now surfaced on records. → `868ee21`, migration 15. (Custom-record timeline not wired — only core CRM objects.)
 - [x] **W6 — Field types.** Added currency, multi_select, url, email, phone, rich_text, rating to custom-objects FIELD_TYPES + form inputs + render. → `00f3d1e` (no migration — metadata-driven).
-- [ ] **W7 — Saved views + table UX.** SavedView (object, filters json, sort, group, columns); advanced filter builder, multi-sort, group-by, column show/hide, bulk delete/select on CRM lists + custom objects.
+- [~] **W7 — Table UX (lite shipped).** Bulk select + delete on contacts & companies lists via reusable BulkTable. → `399c0a1` (no migration). Saved views / advanced filters / multi-sort / group-by still open (stretch).
 - [x] **W8 — Cmd+K + global search + favorites.** ⌘K palette (cross-object search + quick actions), header search box, Favorite model + star toggle + sidebar pins. → `6872787`, migration 16. (Done before W7 — higher UX leverage. Palette links to /app/reports which lands in W9.)
 - [x] **W9 — Reporting dashboard.** /app/reports computes sales/support/team metrics live (open pipeline, won-this-month, pipeline-by-stage, conversations, avg first-response, msg volume, tasks, credits). → `2a0c4f4` (no migration). CSAT + CSV export deferred (CSAT needs live channel to collect).
 - [x] **W10 — Help center.** Article + ArticleCategory (control-plane, public). Admin /app/help (CRUD + publish). Public /help/[slug] portal (search + categories) + /help/[slug]/[article]. → `2602d1a`, migration 17.
@@ -98,3 +98,6 @@ Checkpoint at every wave boundary: build-pass → migrate → commit → push �
 - 2026-06-27: **W10 shipped** `2602d1a` (migration 17_help_center).
 - 2026-06-27: **W12 shipped** `9bea623` (migration 18_web_widget).
 - 2026-06-27: Bringing **W15 HubSpot UI/UX capstone forward now** (user's top priority, benefits all shipped features). Remaining feature waves W7 (table UX), W11 (api/webhooks/audit), W13 (teams/routing/hours), W14 (RBAC) become post-capstone stretch.
+- 2026-06-27: **W15 capstone chunk 1 shipped** `902cd81` — HubSpot design tokens (orange/navy/blue-gray), button polish, landing-page rewrite (full CRM+inbox+AI story), dashboard quick-actions, auth brand polish. No migration.
+- 2026-06-27: **W7-lite shipped** `399c0a1` — bulk select/delete (contacts, companies).
+- 2026-06-27: Starting **W11a** — API keys + public REST. Then webhooks/audit (W11b), W13, W14 as budget allows. Capstone visual base already shipped.

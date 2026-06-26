@@ -52,6 +52,7 @@ model Workspace {
   credits       WorkspaceCredits?
   whatsappChannels WhatsAppChannel[]
   webWidgets    WebWidget[]
+  apiKeys       ApiKey[]
   conversations Conversation[]
   messages      Message[]
   labels        Label[]
@@ -393,6 +394,23 @@ model WebWidget {
 
   @@index([workspaceId])
   @@map("web_widgets")
+}
+
+// API keys for the public REST API (control-plane, no RLS — requests authenticate
+// by key, which resolves the workspace before any tenant context exists).
+model ApiKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  name        String
+  prefix      String
+  keyHash     String    @unique @map("key_hash")
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("api_keys")
 }
 
 model Conversation {

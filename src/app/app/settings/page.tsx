@@ -6,6 +6,7 @@ import { PLAN_LABELS } from "@/lib/plans";
 import { PageHeader } from "@/components/app/page-header";
 import { InviteForm } from "@/components/app/invite-form";
 import { PlanForm } from "@/components/app/plan-form";
+import { ApiKeyManager } from "@/components/app/api-key-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -16,7 +17,7 @@ export default async function SettingsPage() {
   const canManage = canManageWorkspace(ctx.role);
   const isOwner = ctx.role === "OWNER";
 
-  const [members, invites, credits, ws, usage] = await Promise.all([
+  const [members, invites, credits, ws, usage, apiKeys] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: { workspaceId: ctx.workspaceId },
       include: { user: { select: { fullName: true, email: true } } },
@@ -31,7 +32,10 @@ export default async function SettingsPage() {
     withTenant(ctx.workspaceId, (tx) =>
       tx.aiUsage.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     ),
+    prisma.apiKey.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: { createdAt: "desc" } }),
   ]);
+
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
 
   const plan = ws?.plan ?? "FREE";
   const resetAt = new Date(credits.periodStart.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -144,6 +148,26 @@ export default async function SettingsPage() {
                 </ul>
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Developer API</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ApiKeyManager
+              baseUrl={baseUrl}
+              keys={apiKeys.map((k) => ({
+                id: k.id,
+                name: k.name,
+                prefix: k.prefix,
+                lastUsedAt: k.lastUsedAt ? k.lastUsedAt.toISOString() : null,
+                revokedAt: k.revokedAt ? k.revokedAt.toISOString() : null,
+              }))}
+            />
           </CardContent>
         </Card>
       )}
