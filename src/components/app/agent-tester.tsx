@@ -80,7 +80,7 @@ export function AgentTester({
   }
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-card">
+    <div className="flex h-full flex-col rounded-xl border border-border bg-card">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
@@ -102,7 +102,7 @@ export function AgentTester({
       </div>
 
       {/* Transcript */}
-      <div className="flex-1 space-y-4 overflow-y-auto p-4" style={{ minHeight: "20rem", maxHeight: "28rem" }}>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {messages.length === 0 && (
           <p className="mt-8 text-center text-sm text-muted-foreground">
             Send a message to test the live response from your saved configuration.

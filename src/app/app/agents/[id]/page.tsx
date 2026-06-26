@@ -47,7 +47,7 @@ export default async function AgentDetailPage({
     <div className="space-y-6">
       <PageHeader
         title={agent.name}
-        description="Edit this agent's instructions and model."
+        description="Configure on the left, test live on the right."
         action={
           <div className="flex items-center gap-2">
             <Link href={`/app/agents/${id}/chat`}>
@@ -59,90 +59,101 @@ export default async function AgentDetailPage({
           </div>
         }
       />
-      <Card>
-        <CardContent className="pt-6">
-          <AgentForm
-            action={updateAgent.bind(null, id)}
-            members={memberList}
-            defaults={{
-              name: agent.name,
-              instructions: agent.instructions,
-              model: agent.model,
-              mode: agent.mode,
-              tone: agent.tone,
-              responseStyle: agent.responseStyle,
-              objectives: agent.objectives,
-              constraints: agent.constraints,
-              greeting: agent.greeting,
-              temperature: agent.temperature,
-              handoffEnabled: agent.handoffEnabled,
-              handoffUserId: agent.handoffUserId,
-              rules: Array.isArray(agent.rules) ? (agent.rules as AgentDefaults["rules"]) : [],
-            }}
-            submitLabel="Save changes"
-          />
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FlaskConical className="h-4 w-4" /> Test your agent
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-3 text-sm text-muted-foreground">
-            Chat against this agent&apos;s saved configuration and knowledge base. Pick a model to
-            compare replies. Messages aren&apos;t saved but use AI credits, and your if-then rules
-            run live. <span className="font-medium text-foreground">Save changes first to test edits.</span>
-          </p>
-          <AgentTester
-            agentId={id}
-            defaultModel={agent.model}
-            greeting={agent.greeting}
-            rules={Array.isArray(agent.rules) ? (agent.rules as unknown as AgentRule[]) : []}
-          />
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_clamp(360px,30vw,440px)] lg:items-start">
+        {/* Left: configuration (scrolls with the page) */}
+        <div className="min-w-0 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Configuration</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AgentForm
+                action={updateAgent.bind(null, id)}
+                members={memberList}
+                defaults={{
+                  name: agent.name,
+                  instructions: agent.instructions,
+                  model: agent.model,
+                  mode: agent.mode,
+                  tone: agent.tone,
+                  responseStyle: agent.responseStyle,
+                  objectives: agent.objectives,
+                  constraints: agent.constraints,
+                  greeting: agent.greeting,
+                  temperature: agent.temperature,
+                  handoffEnabled: agent.handoffEnabled,
+                  handoffUserId: agent.handoffUserId,
+                  rules: Array.isArray(agent.rules) ? (agent.rules as AgentDefaults["rules"]) : [],
+                }}
+                submitLabel="Save changes"
+              />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileText className="h-4 w-4" /> Knowledge base
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div>
-            <p className="mb-3 text-sm text-muted-foreground">
-              Add documents or import a web page. Relevant snippets are retrieved per message
-              (full-text search) and grounded into the agent&apos;s answers.
-            </p>
-            <div className="mb-3">
-              <UrlKnowledgeForm agentId={id} />
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4" /> Knowledge base
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <div>
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Add documents or import a web page. Relevant snippets are retrieved per message
+                  (full-text search) and grounded into the agent&apos;s answers.
+                </p>
+                <div className="mb-3">
+                  <UrlKnowledgeForm agentId={id} />
+                </div>
+                <KnowledgeForm agentId={id} />
+              </div>
+              <div>
+                <h4 className="mb-2 text-sm font-medium">Documents ({documents.length})</h4>
+                {documents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No documents yet.</p>
+                ) : (
+                  <ul className="divide-y divide-border rounded-md border border-border">
+                    {documents.map((d) => (
+                      <li key={d.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                        <span className="truncate text-sm">{d.title}</span>
+                        <DeleteButton
+                          action={deleteDocument.bind(null, id, d.id)}
+                          label=""
+                          confirmText={`Delete "${d.title}"?`}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right: live test panel (pinned on desktop) */}
+        <aside className="h-[34rem] lg:sticky lg:top-0 lg:h-[calc(100vh-7rem)] lg:self-start">
+          <div className="flex h-full flex-col">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-base font-semibold">
+                <FlaskConical className="h-4 w-4 text-primary" /> Test agent
+              </h2>
+              <span className="text-xs text-muted-foreground">Saved config · uses credits</span>
             </div>
-            <KnowledgeForm agentId={id} />
+            <div className="min-h-0 flex-1">
+              <AgentTester
+                agentId={id}
+                defaultModel={agent.model}
+                greeting={agent.greeting}
+                rules={Array.isArray(agent.rules) ? (agent.rules as unknown as AgentRule[]) : []}
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Messages don&apos;t affect live conversations. Save changes first to test edits.
+            </p>
           </div>
-          <div>
-            <h4 className="mb-2 text-sm font-medium">Documents ({documents.length})</h4>
-            {documents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No documents yet.</p>
-            ) : (
-              <ul className="divide-y divide-border rounded-md border border-border">
-                {documents.map((d) => (
-                  <li key={d.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <span className="truncate text-sm">{d.title}</span>
-                    <DeleteButton
-                      action={deleteDocument.bind(null, id, d.id)}
-                      label=""
-                      confirmText={`Delete "${d.title}"?`}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+        </aside>
+      </div>
     </div>
   );
 }
