@@ -36,7 +36,7 @@ export default async function InboxPage({
   const tab = TABS.find((t) => t.key === (s ?? "all")) ?? TABS[0];
   const ctx = await requireAuth();
 
-  const [data, agents, members, allLabels, canned, macros, channel, widget] = await Promise.all([
+  const [data, agents, members, allLabels, canned, macros, channel, widget, connection] = await Promise.all([
     withTenant(ctx.workspaceId, async (tx) => {
       const where: Prisma.ConversationWhereInput = {
         ...(tab.status ? { status: tab.status } : {}),
@@ -84,10 +84,20 @@ export default async function InboxPage({
     ),
     prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } }),
     prisma.webWidget.findFirst({ where: { workspaceId: ctx.workspaceId } }),
+    prisma.channelConnection.findFirst({ where: { workspaceId: ctx.workspaceId, enabled: true } }),
   ]);
 
   const memberList = members.map((m) => ({ id: m.user.id, name: m.user.fullName }));
   const memberNameById = new Map(memberList.map((m) => [m.id, m.name]));
+  const CHANNEL_LABEL: Record<string, string> = {
+    whatsapp: "WhatsApp",
+    webchat: "Web chat",
+    messenger: "Messenger",
+    instagram: "Instagram",
+    tiktok: "TikTok",
+  };
+  const channelDisplay = (cv: { channelType: string; customerPhone: string }) =>
+    cv.channelType === "whatsapp" ? cv.customerPhone : CHANNEL_LABEL[cv.channelType] ?? cv.channelType;
   const labelsOf = (cv: { labels: { label: { id: string; name: string; color: string } }[] }) =>
     cv.labels.map((cl) => cl.label);
 
@@ -102,6 +112,9 @@ export default async function InboxPage({
       <Link href="/app/inbox/widget">
         <Button variant="outline" size="sm">Web widget</Button>
       </Link>
+      <Link href="/app/inbox/channels">
+        <Button variant="outline" size="sm">Meta / TikTok</Button>
+      </Link>
       <Link href="/app/inbox/settings">
         <Button variant="outline" className="gap-2">
           <Settings className="h-4 w-4" /> WhatsApp
@@ -110,7 +123,7 @@ export default async function InboxPage({
     </div>
   );
 
-  if (!channel && !widget && data.convos.length === 0) {
+  if (!channel && !widget && !connection && data.convos.length === 0) {
     return (
       <div>
         <PageHeader title="Inbox" description="Connect a channel to start receiving messages." action={settingsBtn} />
@@ -121,8 +134,11 @@ export default async function InboxPage({
             <Link href="/app/inbox/settings">
               <Button>Connect WhatsApp</Button>
             </Link>
+            <Link href="/app/inbox/channels">
+              <Button variant="outline">Meta / TikTok</Button>
+            </Link>
             <Link href="/app/inbox/widget">
-              <Button variant="outline">Add website chat widget</Button>
+              <Button variant="outline">Website chat widget</Button>
             </Link>
           </div>
         </Card>
@@ -220,7 +236,7 @@ export default async function InboxPage({
                       </div>
                     </div>
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{cv.customerPhone}</span>
+                      <span>{channelDisplay(cv)}</span>
                       {cv.assignedUserId && memberNameById.has(cv.assignedUserId) && (
                         <span className="truncate">{memberNameById.get(cv.assignedUserId)}</span>
                       )}
@@ -244,8 +260,8 @@ export default async function InboxPage({
                     </Button>
                   </Link>
                   <div>
-                    <div className="font-medium">{data.active.customerName || data.active.customerPhone}</div>
-                    <div className="text-xs text-muted-foreground">{data.active.customerPhone}</div>
+                    <div className="font-medium">{data.active.customerName || channelDisplay(data.active)}</div>
+                    <div className="text-xs text-muted-foreground">{channelDisplay(data.active)}</div>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">

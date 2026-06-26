@@ -52,6 +52,7 @@ model Workspace {
   credits       WorkspaceCredits?
   whatsappChannels WhatsAppChannel[]
   webWidgets    WebWidget[]
+  channelConnections ChannelConnection[]
   apiKeys       ApiKey[]
   webhooks      Webhook[]
   conversations Conversation[]
@@ -439,6 +440,27 @@ model Webhook {
 
   @@index([workspaceId])
   @@map("webhooks")
+}
+
+// Meta (Facebook Page Messenger + Instagram DM + Lead Ads) and TikTok (Lead
+// Generation) connections. Control-plane (no RLS): webhooks resolve the
+// workspace by externalId before any tenant context exists.
+model ChannelConnection {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  provider         String // "meta" | "tiktok"
+  externalId       String    @map("external_id") // FB page id (meta) / advertiser id (tiktok)
+  accessToken      String    @map("access_token")
+  config           Json      @default("{}") // { igUserId?, appSecret?, pageName?, features:{messenger,instagram,leadgen} }
+  autoReplyAgentId String?   @map("auto_reply_agent_id") @db.Uuid
+  enabled          Boolean   @default(true)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@index([workspaceId])
+  @@map("channel_connections")
 }
 
 model Conversation {

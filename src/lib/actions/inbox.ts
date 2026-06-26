@@ -7,6 +7,7 @@ import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppText, sendWhatsAppMedia, uploadWhatsAppMedia, mediaTypeFromMime } from "@/lib/whatsapp";
+import { sendMetaMessage } from "@/lib/meta";
 
 export interface ChannelState {
   error?: string;
@@ -106,6 +107,33 @@ export async function replyToConversation(
     await withTenant(ctx.workspaceId, async (tx) => {
       await tx.message.create({
         data: { workspaceId: ctx.workspaceId, conversationId, direction: "OUTBOUND", authorUserId: ctx.userId, body, type: "text" },
+      });
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date(), waitingSince: null, ...(convo.firstReplyAt ? {} : { firstReplyAt: new Date() }) },
+      });
+    });
+    revalidatePath("/app/inbox");
+    return {};
+  }
+
+  // Messenger / Instagram replies go out via the Meta page token.
+  if (convo.channelType === "messenger" || convo.channelType === "instagram") {
+    if (hasFile) return { error: "Attachments aren't supported on this channel yet." };
+    const conn = await prisma.channelConnection.findFirst({
+      where: { workspaceId: ctx.workspaceId, provider: "meta", enabled: true },
+    });
+    if (!conn) return { error: "Connect your Facebook Page first (Inbox → Channels)." };
+    const recipient = convo.customerPhone.replace(/^(fb|ig):/, "");
+    let mid: string;
+    try {
+      mid = await sendMetaMessage(conn.accessToken, recipient, body);
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : "Failed to send message." };
+    }
+    await withTenant(ctx.workspaceId, async (tx) => {
+      await tx.message.create({
+        data: { workspaceId: ctx.workspaceId, conversationId, direction: "OUTBOUND", authorUserId: ctx.userId, body, type: "text", waMessageId: mid },
       });
       await tx.conversation.update({
         where: { id: conversationId },

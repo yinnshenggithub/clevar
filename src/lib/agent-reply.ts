@@ -4,6 +4,7 @@ import { withTenant } from "./tenant";
 import { resolveModel } from "./ai";
 import { getCredits, creditsForTokens, debitCredits } from "./credits";
 import { sendWhatsAppText } from "./whatsapp";
+import { sendMetaMessage } from "./meta";
 import { retrieveContext } from "./knowledge";
 import { buildAgentSystemPrompt, styleMaxTokens, type AgentConfig } from "./agent-presets";
 
@@ -78,6 +79,55 @@ export async function runAgentReply(opts: {
     await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
   });
 
+  await debitCredits(workspaceId, creditsForTokens(usage?.totalTokens ?? 0), {
+    agentId,
+    conversationId,
+    tokensIn: usage?.promptTokens ?? 0,
+    tokensOut: usage?.completionTokens ?? 0,
+  });
+}
+
+/** AI reply for a Messenger / Instagram conversation — generates and sends via the Meta page token. */
+export async function runMetaAgentReply(opts: {
+  workspaceId: string;
+  conversationId: string;
+  agentId: string;
+  pageAccessToken: string;
+  recipientId: string;
+}): Promise<void> {
+  const { workspaceId, conversationId, agentId, pageAccessToken, recipientId } = opts;
+  if (!hasLlmKey()) return;
+
+  const data = await withTenant(workspaceId, async (tx) => {
+    const agent = await tx.aiAgent.findFirst({ where: { id: agentId, deletedAt: null } });
+    const msgs = await tx.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" }, take: 20 });
+    return { agent, msgs };
+  });
+  if (!data.agent) return;
+
+  const credits = await getCredits(workspaceId);
+  if (credits.remaining <= 0) return;
+
+  const coreMessages: CoreMessage[] = data.msgs
+    .filter((m) => !m.private)
+    .map((m) => ({ role: m.direction === "INBOUND" ? "user" : "assistant", content: m.body }));
+  const lastUserText = [...coreMessages].reverse().find((m) => m.role === "user")?.content;
+  const context = await retrieveContext(workspaceId, agentId, typeof lastUserText === "string" ? lastUserText : "");
+  const system = buildAgentSystemPrompt(toConfig(data.agent), context);
+
+  const { text, usage } = await generateText({
+    model: resolveModel(data.agent.model),
+    system,
+    messages: coreMessages,
+    temperature: data.agent.temperature ?? 0.5,
+    maxTokens: styleMaxTokens(data.agent.responseStyle ?? "balanced"),
+  });
+
+  const mid = await sendMetaMessage(pageAccessToken, recipientId, text);
+  await withTenant(workspaceId, async (tx) => {
+    await tx.message.create({ data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, type: "text", waMessageId: mid } });
+    await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date(), waitingSince: null } });
+  });
   await debitCredits(workspaceId, creditsForTokens(usage?.totalTokens ?? 0), {
     agentId,
     conversationId,
