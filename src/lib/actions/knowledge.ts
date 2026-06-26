@@ -4,10 +4,40 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { fetchUrlText } from "@/lib/url-extract";
 
 export interface DocState {
   error?: string;
   ok?: boolean;
+}
+
+/** Imports a public web page into the agent's knowledge base. */
+export async function addUrlDocument(agentId: string, _prev: DocState, formData: FormData): Promise<DocState> {
+  const ctx = await requireAuth();
+  const url = String(formData.get("url") ?? "").trim();
+  if (!/^https?:\/\/.+/i.test(url)) return { error: "Enter a valid http(s) URL." };
+
+  let title: string;
+  let text: string;
+  try {
+    ({ title, text } = await fetchUrlText(url));
+  } catch {
+    return { error: "Could not fetch that URL. Make sure it's a public page." };
+  }
+  if (!text || text.length < 20) return { error: "Couldn't extract readable text from that page." };
+
+  try {
+    await withTenant(ctx.workspaceId, async (tx) => {
+      const agent = await tx.aiAgent.findFirst({ where: { id: agentId, deletedAt: null } });
+      if (!agent) throw new Error("AGENT_NOT_FOUND");
+      await tx.agentDocument.create({ data: { workspaceId: ctx.workspaceId, agentId, title, content: text } });
+    });
+  } catch (e) {
+    console.error("addUrlDocument failed", e);
+    return { error: "Could not save the page." };
+  }
+  revalidatePath(`/app/agents/${agentId}`);
+  return { ok: true };
 }
 
 const docSchema = z.object({

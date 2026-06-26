@@ -270,8 +270,19 @@ model AiAgent {
   id           String           @id @default(uuid()) @db.Uuid
   workspaceId  String           @map("workspace_id") @db.Uuid
   name         String
-  instructions String           @default("") // system prompt / context
+  instructions String           @default("") // extra custom instructions
   model        String           @default("claude-haiku-4-5") @map("model")
+  // Studio config — assembled into the system prompt at reply time.
+  mode           String         @default("support") // sales | support | custom
+  tone           String         @default("friendly") // preset key
+  responseStyle  String         @default("balanced") @map("response_style") // concise | balanced | detailed
+  objectives     String         @default("")
+  constraints    String         @default("")
+  greeting       String         @default("")
+  temperature    Float          @default(0.5)
+  handoffEnabled Boolean        @default(true) @map("handoff_enabled")
+  handoffUserId  String?        @map("handoff_user_id") @db.Uuid
+  rules          Json           @default("[]") // [{label, trigger, keywords?, action, note?}]
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz

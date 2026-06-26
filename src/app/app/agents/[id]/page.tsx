@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { MessageSquare, FileText } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { prisma } from "@/lib/prisma";
 import { updateAgent, deleteAgent } from "@/lib/actions/agents";
 import { deleteDocument } from "@/lib/actions/knowledge";
 import { PageHeader } from "@/components/app/page-header";
-import { AgentForm } from "@/components/app/agent-form";
+import { AgentForm, type AgentDefaults } from "@/components/app/agent-form";
 import { KnowledgeForm } from "@/components/app/knowledge-form";
+import { UrlKnowledgeForm } from "@/components/app/url-knowledge-form";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +35,11 @@ export default async function AgentDetailPage({
   });
   if (!data) notFound();
   const { agent, documents } = data;
+  const members = await prisma.workspaceMember.findMany({
+    where: { workspaceId: ctx.workspaceId },
+    include: { user: { select: { id: true, fullName: true } } },
+  });
+  const memberList = members.map((m) => ({ id: m.user.id, name: m.user.fullName }));
 
   return (
     <div className="space-y-6">
@@ -54,7 +61,22 @@ export default async function AgentDetailPage({
         <CardContent className="pt-6">
           <AgentForm
             action={updateAgent.bind(null, id)}
-            defaults={{ name: agent.name, instructions: agent.instructions, model: agent.model }}
+            members={memberList}
+            defaults={{
+              name: agent.name,
+              instructions: agent.instructions,
+              model: agent.model,
+              mode: agent.mode,
+              tone: agent.tone,
+              responseStyle: agent.responseStyle,
+              objectives: agent.objectives,
+              constraints: agent.constraints,
+              greeting: agent.greeting,
+              temperature: agent.temperature,
+              handoffEnabled: agent.handoffEnabled,
+              handoffUserId: agent.handoffUserId,
+              rules: Array.isArray(agent.rules) ? (agent.rules as AgentDefaults["rules"]) : [],
+            }}
             submitLabel="Save changes"
           />
         </CardContent>
@@ -69,9 +91,12 @@ export default async function AgentDetailPage({
         <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div>
             <p className="mb-3 text-sm text-muted-foreground">
-              Add documents the agent can answer from. Relevant snippets are retrieved per message
-              (full-text search) and added to the agent&apos;s context.
+              Add documents or import a web page. Relevant snippets are retrieved per message
+              (full-text search) and grounded into the agent&apos;s answers.
             </p>
+            <div className="mb-3">
+              <UrlKnowledgeForm agentId={id} />
+            </div>
             <KnowledgeForm agentId={id} />
           </div>
           <div>

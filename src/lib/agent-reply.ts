@@ -4,7 +4,23 @@ import { withTenant } from "./tenant";
 import { resolveModel } from "./ai";
 import { getCredits, creditsForTokens, debitCredits } from "./credits";
 import { sendWhatsAppText } from "./whatsapp";
-import { retrieveContext, buildSystemPrompt } from "./knowledge";
+import { retrieveContext } from "./knowledge";
+import { buildAgentSystemPrompt, styleMaxTokens, type AgentConfig } from "./agent-presets";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function toConfig(agent: any): AgentConfig {
+  return {
+    name: agent.name,
+    mode: agent.mode ?? "support",
+    tone: agent.tone ?? "friendly",
+    responseStyle: agent.responseStyle ?? "balanced",
+    objectives: agent.objectives ?? "",
+    constraints: agent.constraints ?? "",
+    greeting: agent.greeting ?? "",
+    instructions: agent.instructions ?? "",
+    handoffEnabled: agent.handoffEnabled ?? true,
+  };
+}
 
 export function hasLlmKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
@@ -43,15 +59,14 @@ export async function runAgentReply(opts: {
 
   const lastUserText = [...coreMessages].reverse().find((m) => m.role === "user")?.content;
   const context = await retrieveContext(workspaceId, agentId, typeof lastUserText === "string" ? lastUserText : "");
-  const system = buildSystemPrompt(
-    data.agent.instructions?.trim() || `You are ${data.agent.name}, a helpful WhatsApp assistant. Be concise.`,
-    context,
-  );
+  const system = buildAgentSystemPrompt(toConfig(data.agent), context);
 
   const { text, usage } = await generateText({
     model: resolveModel(data.agent.model),
     system,
     messages: coreMessages,
+    temperature: data.agent.temperature ?? 0.5,
+    maxTokens: styleMaxTokens(data.agent.responseStyle ?? "balanced"),
   });
 
   const waId = await sendWhatsAppText(phoneNumberId, accessToken, phone, text);
@@ -95,12 +110,15 @@ export async function runWebchatAgentReply(opts: {
     .map((m) => ({ role: m.direction === "INBOUND" ? "user" : "assistant", content: m.body }));
   const lastUserText = [...coreMessages].reverse().find((m) => m.role === "user")?.content;
   const context = await retrieveContext(workspaceId, agentId, typeof lastUserText === "string" ? lastUserText : "");
-  const system = buildSystemPrompt(
-    data.agent.instructions?.trim() || `You are ${data.agent.name}, a helpful website assistant. Be concise.`,
-    context,
-  );
+  const system = buildAgentSystemPrompt(toConfig(data.agent), context);
 
-  const { text, usage } = await generateText({ model: resolveModel(data.agent.model), system, messages: coreMessages });
+  const { text, usage } = await generateText({
+    model: resolveModel(data.agent.model),
+    system,
+    messages: coreMessages,
+    temperature: data.agent.temperature ?? 0.5,
+    maxTokens: styleMaxTokens(data.agent.responseStyle ?? "balanced"),
+  });
 
   await withTenant(workspaceId, async (tx) => {
     await tx.message.create({ data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, type: "text" } });

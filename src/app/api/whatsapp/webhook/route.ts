@@ -4,6 +4,7 @@ import { withTenant } from "@/lib/tenant";
 import { verifyWebhookSignature, waPhoneToE164 } from "@/lib/whatsapp";
 import { runWorkflows } from "@/lib/workflow";
 import { runAgentReply, hasLlmKey } from "@/lib/agent-reply";
+import { evaluateAgentRules } from "@/lib/agent-rules";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -172,7 +173,19 @@ async function processMessageReceived(
   const convo = await withTenant(channel.workspaceId, (tx) =>
     tx.conversation.findFirst({ where: { id: conversationId } }),
   );
-  if (convo?.assignedAgentId && hasLlmKey()) {
+  if (!convo?.assignedAgentId) return;
+
+  // If-then rules (keyword / "asks for a human") run without an LLM and can
+  // hand off to a human before any AI reply.
+  const { handedOff } = await evaluateAgentRules({
+    workspaceId: channel.workspaceId,
+    conversationId,
+    agentId: convo.assignedAgentId,
+    messageText,
+  });
+  if (handedOff) return;
+
+  if (hasLlmKey()) {
     await runAgentReply({
       workspaceId: channel.workspaceId,
       phoneNumberId: channel.phoneNumberId,
