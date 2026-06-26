@@ -7,7 +7,7 @@ import { z } from "zod";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { slugify } from "@/lib/utils";
-import { FIELD_TYPES, isRelationType } from "@/lib/custom-objects";
+import { FIELD_TYPES, isRelationType, hasChoices, isMultiValue, supportsDefault } from "@/lib/custom-objects";
 
 export interface FormState {
   error?: string;
@@ -92,12 +92,12 @@ export async function addField(objectDefinitionId: string, _prev: FormState, for
   if (!FIELD_TYPES.includes(type as never)) return { error: "Invalid field type." };
 
   let options: Record<string, unknown> = {};
-  if (type === "select") {
+  if (hasChoices(type)) {
     const choices = String(formData.get("choices") ?? "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (choices.length === 0) return { error: "Add at least one choice for a select field." };
+    if (choices.length === 0) return { error: "Add at least one choice for this field." };
     options = { choices };
   } else if (type === "relation") {
     const target = String(formData.get("relationTarget") ?? "").trim();
@@ -118,7 +118,7 @@ export async function addField(objectDefinitionId: string, _prev: FormState, for
           label,
           type,
           required: isRelationType(type) ? false : required,
-          defaultValue: type === "boolean" || isRelationType(type) ? null : defaultValue,
+          defaultValue: supportsDefault(type) ? defaultValue : null,
           options: options as Prisma.InputJsonValue,
           position: count,
         },
@@ -156,14 +156,14 @@ function readValues(
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const f of fields) {
-    if (f.type === "relations") {
+    if (isMultiValue(f.type)) {
       values[f.key] = formData.getAll(f.key).map(String).filter(Boolean);
       continue;
     }
     const raw = formData.get(f.key);
     if (f.type === "boolean") {
       values[f.key] = raw === "on";
-    } else if (f.type === "number") {
+    } else if (f.type === "number" || f.type === "currency" || f.type === "rating") {
       const n = Number(raw);
       let v = raw === null || raw === "" || Number.isNaN(n) ? null : n;
       if (v === null && applyDefaults && f.defaultValue != null && f.defaultValue !== "" && !Number.isNaN(Number(f.defaultValue))) {

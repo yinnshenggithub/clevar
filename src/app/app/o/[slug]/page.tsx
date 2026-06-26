@@ -4,7 +4,7 @@ import { Plus, Table2 } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { relationOptions } from "@/lib/object-data";
-import { relationTarget, isRelationType } from "@/lib/custom-objects";
+import { relationTarget, isRelationType, formatFieldValue } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -42,14 +42,13 @@ export default async function RecordsPage({ params }: { params: Promise<{ slug: 
   const cell = (f: { key: string; type: string }, values: Record<string, unknown>) => {
     const v = values[f.key];
     if (v == null || v === "") return "—";
-    if (f.type === "boolean") return v === true ? "Yes" : "No";
     if (f.type === "relation") return relMaps[f.key]?.get(String(v)) ?? String(v);
     if (f.type === "relations") {
       const arr = Array.isArray(v) ? v : [];
       const m = relMaps[f.key];
       return arr.map((id) => m?.get(String(id)) ?? String(id)).join(", ") || "—";
     }
-    return String(v);
+    return formatFieldValue(f.type, v);
   };
 
   return (

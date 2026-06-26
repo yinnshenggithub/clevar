@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { addField, type FormState } from "@/lib/actions/objects";
-import { FIELD_TYPES, FIELD_TYPE_LABELS, CORE_RELATION_TARGETS, isRelationType, type FieldType } from "@/lib/custom-objects";
+import { FIELD_TYPES, FIELD_TYPE_LABELS, CORE_RELATION_TARGETS, isRelationType, hasChoices, supportsDefault, type FieldType } from "@/lib/custom-objects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,7 +37,7 @@ export function FieldForm({
           </Select>
         </div>
       </div>
-      {type === "select" && (
+      {hasChoices(type) && (
         <div className="space-y-2">
           <Label htmlFor="choices">Choices (comma-separated)</Label>
           <Input id="choices" name="choices" placeholder="Lead, Active, Closed" />
@@ -56,7 +56,7 @@ export function FieldForm({
           </Select>
         </div>
       )}
-      {!isRelationType(type) && type !== "boolean" && (
+      {supportsDefault(type) && (
         <div className="space-y-2">
           <Label htmlFor="defaultValue">Default value (optional)</Label>
           <Input id="defaultValue" name="defaultValue" placeholder="Pre-filled when creating a record" />
