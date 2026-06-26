@@ -51,6 +51,8 @@ model Workspace {
   whatsappChannels WhatsAppChannel[]
   conversations Conversation[]
   messages      Message[]
+  labels        Label[]
+  conversationLabels ConversationLabel[]
   workflows     Workflow[]
   agentDocuments AgentDocument[]
   objectDefinitions ObjectDefinition[]
@@ -337,6 +339,7 @@ model Conversation {
   updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz
   workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   messages        Message[]
+  labels          ConversationLabel[]
 
   @@index([workspaceId, status, lastMessageAt])
   @@index([workspaceId, customerPhone])
@@ -386,6 +389,34 @@ model Workflow {
 
   @@index([workspaceId, triggerType, enabled])
   @@map("workflows")
+}
+
+model Label {
+  id                 String              @id @default(uuid()) @db.Uuid
+  workspaceId        String              @map("workspace_id") @db.Uuid
+  name               String
+  color              String              @default("#64748b")
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversationLabels ConversationLabel[]
+
+  @@unique([workspaceId, name])
+  @@map("labels")
+}
+
+model ConversationLabel {
+  id             String       @id @default(uuid()) @db.Uuid
+  workspaceId    String       @map("workspace_id") @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  labelId        String       @map("label_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  label          Label        @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, labelId])
+  @@index([workspaceId, labelId])
+  @@map("conversation_labels")
 }
 
 enum ConversationStatus {

@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { ReplyForm } from "@/components/app/reply-form";
 import { AssignAgentSelect } from "@/components/app/assign-agent-select";
 import { ConversationControls, PriorityDot, StatusTag } from "@/components/app/conversation-controls";
+import { ConversationLabels, LabelDots } from "@/components/app/conversation-labels";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -26,17 +27,19 @@ const TABS: { key: string; label: string; status?: ConversationStatus }[] = [
 export default async function InboxPage({
   searchParams,
 }: {
-  searchParams: Promise<{ c?: string; q?: string; s?: string }>;
+  searchParams: Promise<{ c?: string; q?: string; s?: string; label?: string }>;
 }) {
-  const { c, q, s } = await searchParams;
+  const { c, q, s, label } = await searchParams;
   const query = (q ?? "").trim();
+  const labelFilter = (label ?? "").trim();
   const tab = TABS.find((t) => t.key === (s ?? "all")) ?? TABS[0];
   const ctx = await requireAuth();
 
-  const [data, agents, members, channel] = await Promise.all([
+  const [data, agents, members, allLabels, channel] = await Promise.all([
     withTenant(ctx.workspaceId, async (tx) => {
       const where: Prisma.ConversationWhereInput = {
         ...(tab.status ? { status: tab.status } : {}),
+        ...(labelFilter ? { labels: { some: { labelId: labelFilter } } } : {}),
         ...(query
           ? {
               OR: [
@@ -46,7 +49,12 @@ export default async function InboxPage({
             }
           : {}),
       };
-      const convos = await tx.conversation.findMany({ where, orderBy: { lastMessageAt: "desc" }, take: 100 });
+      const convos = await tx.conversation.findMany({
+        where,
+        orderBy: { lastMessageAt: "desc" },
+        take: 100,
+        include: { labels: { include: { label: true } } },
+      });
       const activeId = c && convos.some((x) => x.id === c) ? c : convos[0]?.id;
       const active = convos.find((x) => x.id === activeId) ?? null;
       const messages = activeId
@@ -61,11 +69,16 @@ export default async function InboxPage({
       where: { workspaceId: ctx.workspaceId },
       include: { user: { select: { id: true, fullName: true } } },
     }),
+    withTenant(ctx.workspaceId, (tx) =>
+      tx.label.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, color: true } }),
+    ),
     prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } }),
   ]);
 
   const memberList = members.map((m) => ({ id: m.user.id, name: m.user.fullName }));
   const memberNameById = new Map(memberList.map((m) => [m.id, m.name]));
+  const labelsOf = (cv: { labels: { label: { id: string; name: string; color: string } }[] }) =>
+    cv.labels.map((cl) => cl.label);
 
   const settingsBtn = (
     <Link href="/app/inbox/settings">
@@ -95,6 +108,14 @@ export default async function InboxPage({
     const p = new URLSearchParams();
     if (key !== "all") p.set("s", key);
     if (query) p.set("q", query);
+    if (labelFilter) p.set("label", labelFilter);
+    return `/app/inbox${p.toString() ? `?${p}` : ""}`;
+  };
+  const labelHref = (id: string) => {
+    const p = new URLSearchParams();
+    if (tab.key !== "all") p.set("s", tab.key);
+    if (query) p.set("q", query);
+    if (id) p.set("label", id);
     return `/app/inbox${p.toString() ? `?${p}` : ""}`;
   };
 
@@ -123,6 +144,29 @@ export default async function InboxPage({
                 </Link>
               ))}
             </div>
+            {allLabels.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {labelFilter && (
+                  <Link href={labelHref("")} className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                    ✕ clear label
+                  </Link>
+                )}
+                {allLabels.map((l) => (
+                  <Link
+                    key={l.id}
+                    href={labelHref(l.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]",
+                      labelFilter === l.id ? "text-white" : "text-muted-foreground hover:bg-accent",
+                    )}
+                    style={labelFilter === l.id ? { backgroundColor: l.color } : undefined}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: l.color }} />
+                    {l.name}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
           {data.convos.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
@@ -139,6 +183,7 @@ export default async function InboxPage({
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-medium">{cv.customerName || cv.customerPhone}</span>
                       <div className="flex shrink-0 items-center gap-1">
+                        <LabelDots labels={labelsOf(cv)} />
                         <PriorityDot priority={cv.priority} />
                         <StatusTag status={cv.status} />
                       </div>
@@ -186,6 +231,14 @@ export default async function InboxPage({
                     current={data.active.assignedAgentId}
                   />
                 </div>
+              </div>
+
+              <div className="border-b border-border px-3 py-2">
+                <ConversationLabels
+                  conversationId={data.active.id}
+                  applied={labelsOf(data.active)}
+                  allLabels={allLabels}
+                />
               </div>
 
               <div className="flex-1 space-y-3 overflow-y-auto p-4" style={{ maxHeight: "calc(100vh - 20rem)" }}>

@@ -64,7 +64,7 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 > From gap-audit (49 baseline, 233 gaps). Ordered simple→complex. Zero-dependency only.
 > Mark `[x]` only after build-passed AND pushed. Record commit hash in progress log.
 
-- [ ] **W1 — Inbox lifecycle.** Conversation status→{OPEN,PENDING,SNOOZED,RESOLVED}, priority enum, snoozedUntil, assignedUserId (member), firstReplyAt, waitingSince, customAttributes; Message + `private` (internal note) + authorUserId. UI: status/priority/assignee controls, snooze, internal-note toggle, filter tabs.
+- [x] **W1 — Inbox lifecycle.** Conversation status→{OPEN,PENDING,SNOOZED,RESOLVED}, priority enum, snoozedUntil, assignedUserId (member), firstReplyAt, waitingSince, customAttributes; Message + `private` (internal note) + authorUserId. UI: status/priority/assignee controls, snooze, internal-note toggle, filter tabs. → `f09768b`, migration 11.
 - [ ] **W2 — Conversation labels/tags.** Label model + ConversationLabel join; assign/filter by label in inbox.
 - [ ] **W3 — Canned responses + Macros.** CannedResponse (shortcode+body), insert in reply form. Macro (ordered actions) one-click run on a conversation.
 - [ ] **W4 — Actor metadata + field rules.** created_by/updated_by (Uuid) on Company/Contact/Deal/CustomRecord; CustomFieldDef + `required`, `defaultValue`. Enforce in actions; show creator.
@@ -81,3 +81,5 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 
 ## Progress log
 - 2026-06-27: Prep done — schema read, RLS pattern confirmed, DB reachable, SSH push verified, log created. Gap-audit workflow running.
+- 2026-06-27: Audit done (49 baseline / 233 gaps). Wave plan written.
+- 2026-06-27: **W1 shipped** `f09768b` (migration 11_inbox_lifecycle). Build green, deployed. Note: snoozed convos auto-reopen on inbound now; time-based auto-reopen deferred to W13 cron.
