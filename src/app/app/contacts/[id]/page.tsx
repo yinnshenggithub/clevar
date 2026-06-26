@@ -2,8 +2,10 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateContact, deleteContact } from "@/lib/actions/contacts";
+import { getLinkedRecords } from "@/lib/object-data";
 import { PageHeader } from "@/components/app/page-header";
 import { ContactForm } from "@/components/app/contact-form";
+import { LinkedRecordsCard } from "@/components/app/linked-records-card";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -25,15 +27,16 @@ export default async function ContactDetailPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     });
-    return { contact, companies };
+    const linked = await getLinkedRecords(tx, "contact", id);
+    return { contact, companies, linked };
   });
 
   if (!data) notFound();
-  const { contact, companies } = data;
+  const { contact, companies, linked } = data;
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Unnamed contact";
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title={name}
         description="Edit contact details."
@@ -56,6 +59,7 @@ export default async function ContactDetailPage({
           />
         </CardContent>
       </Card>
+      <LinkedRecordsCard linked={linked} />
     </div>
   );
 }

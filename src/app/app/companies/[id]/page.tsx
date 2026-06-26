@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateCompany, deleteCompany } from "@/lib/actions/companies";
+import { getLinkedRecords } from "@/lib/object-data";
 import { PageHeader } from "@/components/app/page-header";
 import { CompanyForm } from "@/components/app/company-form";
+import { LinkedRecordsCard } from "@/components/app/linked-records-card";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -33,11 +35,12 @@ export default async function CompanyDetailPage({
         take: 50,
       }),
     ]);
-    return { company, contacts, deals };
+    const linked = await getLinkedRecords(tx, "company", id);
+    return { company, contacts, deals, linked };
   });
 
   if (!data) notFound();
-  const { company, contacts, deals } = data;
+  const { company, contacts, deals, linked } = data;
 
   return (
     <div className="space-y-6">
@@ -98,6 +101,7 @@ export default async function CompanyDetailPage({
           </CardContent>
         </Card>
       </div>
+      <LinkedRecordsCard linked={linked} />
     </div>
   );
 }

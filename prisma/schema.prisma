@@ -53,6 +53,9 @@ model Workspace {
   messages      Message[]
   workflows     Workflow[]
   agentDocuments AgentDocument[]
+  objectDefinitions ObjectDefinition[]
+  customFieldDefs   CustomFieldDef[]
+  customRecords     CustomRecord[]
 
   @@map("workspaces")
 }
@@ -389,6 +392,58 @@ enum WorkspacePlan {
   FREE
   PRO
   BUSINESS
+}
+
+// ─────────────────── Custom objects (metadata-driven, RLS) ─────────────────────
+
+model ObjectDefinition {
+  id           String           @id @default(uuid()) @db.Uuid
+  workspaceId  String           @map("workspace_id") @db.Uuid
+  nameSingular String           @map("name_singular")
+  namePlural   String           @map("name_plural")
+  slug         String
+  icon         String           @default("Boxes")
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fields       CustomFieldDef[]
+  records      CustomRecord[]
+
+  @@unique([workspaceId, slug])
+  @@map("object_definitions")
+}
+
+model CustomFieldDef {
+  id                 String           @id @default(uuid()) @db.Uuid
+  workspaceId        String           @map("workspace_id") @db.Uuid
+  objectDefinitionId String           @map("object_definition_id") @db.Uuid
+  key                String
+  label              String
+  type               String // text | number | boolean | date | select | relation
+  options            Json             @default("{}") // select: { choices: string[] }; relation: { target: string }
+  position           Int              @default(0)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  objectDefinition   ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([objectDefinitionId, key])
+  @@index([workspaceId, objectDefinitionId, position])
+  @@map("custom_field_defs")
+}
+
+model CustomRecord {
+  id                 String           @id @default(uuid()) @db.Uuid
+  workspaceId        String           @map("workspace_id") @db.Uuid
+  objectDefinitionId String           @map("object_definition_id") @db.Uuid
+  values             Json             @default("{}")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt          DateTime?        @map("deleted_at") @db.Timestamptz
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  objectDefinition   ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, objectDefinitionId, createdAt])
+  @@map("custom_records")
 }
 
 enum StageType {

@@ -1,21 +1,26 @@
 import { requireAuth } from "@/lib/auth";
 import { logoutAction } from "@/lib/actions/auth";
+import { withTenant } from "@/lib/tenant";
 import { Sidebar } from "@/components/app/sidebar";
 import { MobileNav } from "@/components/app/mobile-nav";
+import { ThemeToggle } from "@/components/app/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { initials } from "@/lib/utils";
 import { LogOut } from "lucide-react";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireAuth();
+  const customObjects = await withTenant(ctx.workspaceId, (tx) =>
+    tx.objectDefinition.findMany({ orderBy: { createdAt: "asc" }, select: { slug: true, namePlural: true } }),
+  ).catch(() => []);
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar workspaceName={ctx.workspace.name} />
+      <Sidebar workspaceName={ctx.workspace.name} customObjects={customObjects} />
       <div className="flex flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 sm:px-6">
           <div className="flex items-center gap-2">
-            <MobileNav workspaceName={ctx.workspace.name} />
+            <MobileNav workspaceName={ctx.workspace.name} customObjects={customObjects} />
             <div className="text-sm text-muted-foreground">
               {ctx.workspace.name} · {ctx.role.toLowerCase()}
             </div>
@@ -27,6 +32,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               </span>
               <span className="hidden sm:inline">{ctx.user.fullName}</span>
             </div>
+            <ThemeToggle />
             <form action={logoutAction}>
               <Button type="submit" variant="ghost" size="icon" aria-label="Sign out">
                 <LogOut className="h-4 w-4" />

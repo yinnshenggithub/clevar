@@ -2,8 +2,10 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateDeal, deleteDeal } from "@/lib/actions/deals";
+import { getLinkedRecords } from "@/lib/object-data";
 import { PageHeader } from "@/components/app/page-header";
 import { DealForm } from "@/components/app/deal-form";
+import { LinkedRecordsCard } from "@/components/app/linked-records-card";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,14 +38,15 @@ export default async function DealDetailPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     });
-    return { deal, pipelines: pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages })), companies };
+    const linked = await getLinkedRecords(tx, "deal", id);
+    return { deal, pipelines: pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages })), companies, linked };
   });
 
   if (!data) notFound();
-  const { deal, pipelines, companies } = data;
+  const { deal, pipelines, companies, linked } = data;
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title={deal.title}
         description="Edit deal details."
@@ -73,6 +76,7 @@ export default async function DealDetailPage({
           />
         </CardContent>
       </Card>
+      <LinkedRecordsCard linked={linked} />
     </div>
   );
 }
