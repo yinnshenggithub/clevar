@@ -61,8 +61,13 @@ export default async function AgentsPage() {
                     {a.name}
                   </Link>
                 </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <Badge variant="secondary" className="capitalize">{a.mode}</Badge>
+                  <Badge variant="secondary" className="capitalize">{a.tone}</Badge>
+                  {a.handoffEnabled && <Badge variant="secondary">handoff</Badge>}
+                </div>
                 <p className="mt-3 line-clamp-3 flex-1 text-sm text-muted-foreground">
-                  {a.instructions || "No instructions set."}
+                  {a.objectives || a.instructions || "No objectives set yet."}
                 </p>
                 <div className="mt-4 flex items-center gap-2">
                   <Link href={`/app/agents/${a.id}/chat`} className="flex-1">
