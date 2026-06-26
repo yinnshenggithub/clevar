@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { resolveModel } from "@/lib/ai";
 import { getCredits, creditsForTokens, debitCredits } from "@/lib/credits";
+import { retrieveContext, buildSystemPrompt } from "@/lib/knowledge";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -34,12 +35,15 @@ export async function POST(
   }
 
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const lastUserText = typeof lastUser?.content === "string" ? lastUser.content : "";
+  const context = await retrieveContext(ctx.workspaceId, agentId, lastUserText);
+  const baseSystem =
+    agent.instructions?.trim() ||
+    `You are ${agent.name}, a helpful AI assistant inside a CRM workspace. Be concise and accurate.`;
 
   const result = streamText({
     model: resolveModel(agent.model),
-    system:
-      agent.instructions?.trim() ||
-      `You are ${agent.name}, a helpful AI assistant inside a CRM workspace. Be concise and accurate.`,
+    system: buildSystemPrompt(baseSystem, context),
     messages: convertToCoreMessages(messages),
     onFinish: async ({ text, usage }) => {
       const tokensIn = usage?.promptTokens ?? 0;

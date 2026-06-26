@@ -4,6 +4,7 @@ import { withTenant } from "./tenant";
 import { resolveModel } from "./ai";
 import { getCredits, creditsForTokens, debitCredits } from "./credits";
 import { sendWhatsAppText } from "./whatsapp";
+import { retrieveContext, buildSystemPrompt } from "./knowledge";
 
 export function hasLlmKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
@@ -40,9 +41,16 @@ export async function runAgentReply(opts: {
     content: m.body,
   }));
 
+  const lastUserText = [...coreMessages].reverse().find((m) => m.role === "user")?.content;
+  const context = await retrieveContext(workspaceId, agentId, typeof lastUserText === "string" ? lastUserText : "");
+  const system = buildSystemPrompt(
+    data.agent.instructions?.trim() || `You are ${data.agent.name}, a helpful WhatsApp assistant. Be concise.`,
+    context,
+  );
+
   const { text, usage } = await generateText({
     model: resolveModel(data.agent.model),
-    system: data.agent.instructions?.trim() || `You are ${data.agent.name}, a helpful WhatsApp assistant. Be concise.`,
+    system,
     messages: coreMessages,
   });
 

@@ -51,6 +51,7 @@ model Workspace {
   conversations Conversation[]
   messages      Message[]
   workflows     Workflow[]
+  agentDocuments AgentDocument[]
 
   @@map("workspaces")
 }
@@ -208,9 +209,24 @@ model AiAgent {
   deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz
   workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations AiConversation[]
+  documents     AgentDocument[]
 
   @@index([workspaceId, createdAt])
   @@map("ai_agents")
+}
+
+model AgentDocument {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  agentId     String    @map("agent_id") @db.Uuid
+  title       String
+  content     String
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent       AiAgent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, agentId])
+  @@map("agent_documents")
 }
 
 model WorkspaceCredits {
