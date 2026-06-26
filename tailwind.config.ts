@@ -51,8 +51,9 @@ const config: Config = {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        soft: "0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.06)",
-        card: "0 1px 2px 0 rgb(0 0 0 / 0.03), 0 4px 16px -8px rgb(15 23 42 / 0.10)",
+        soft: "0 1px 2px 0 rgb(45 62 80 / 0.05), 0 1px 3px 0 rgb(45 62 80 / 0.07)",
+        card: "0 1px 2px 0 rgb(45 62 80 / 0.04), 0 6px 18px -10px rgb(45 62 80 / 0.16)",
+        pop: "0 10px 30px -12px rgb(45 62 80 / 0.28)",
       },
     },
   },

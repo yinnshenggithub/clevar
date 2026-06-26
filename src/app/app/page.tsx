@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Users, Building2, CircleDollarSign, TrendingUp } from "lucide-react";
+import { Users, Building2, CircleDollarSign, TrendingUp, Plus, MessageSquare, BarChart3 } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 
 export default async function DashboardPage() {
@@ -39,11 +40,27 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Welcome back, {ctx.user.fullName.split(" ")[0]}
-        </h1>
-        <p className="text-sm text-muted-foreground">Here&apos;s what&apos;s happening in {ctx.workspace.name}.</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">
+            Welcome back, {ctx.user.fullName.split(" ")[0]}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Here&apos;s what&apos;s happening in {ctx.workspace.name}.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/app/contacts/new">
+            <Button size="sm" className="gap-1.5"><Plus className="h-4 w-4" /> Contact</Button>
+          </Link>
+          <Link href="/app/deals/new">
+            <Button size="sm" variant="outline" className="gap-1.5"><Plus className="h-4 w-4" /> Deal</Button>
+          </Link>
+          <Link href="/app/inbox">
+            <Button size="sm" variant="outline" className="gap-1.5"><MessageSquare className="h-4 w-4" /> Inbox</Button>
+          </Link>
+          <Link href="/app/reports">
+            <Button size="sm" variant="outline" className="gap-1.5"><BarChart3 className="h-4 w-4" /> Reports</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

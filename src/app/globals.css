@@ -2,45 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Clevar design system — warm sunset-orange primary on a calm blue-gray canvas
+   with deep-navy ink. Airy surfaces, hairline borders, soft shadows. */
 :root {
-  --background: 220 33% 98%;
-  --foreground: 222 47% 11%;
+  --background: 206 33% 97%;
+  --foreground: 210 29% 24%;
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --primary: 245 64% 56%;
+  --card-foreground: 210 29% 24%;
+  --primary: 12 100% 67%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 20% 95%;
-  --secondary-foreground: 222 40% 20%;
-  --muted: 220 20% 95%;
-  --muted-foreground: 220 12% 47%;
-  --accent: 245 60% 96%;
-  --accent-foreground: 245 55% 38%;
-  --destructive: 0 72% 51%;
+  --secondary: 210 33% 95%;
+  --secondary-foreground: 210 29% 28%;
+  --muted: 210 33% 95%;
+  --muted-foreground: 211 24% 46%;
+  --accent: 210 38% 93%;
+  --accent-foreground: 210 30% 26%;
+  --destructive: 357 79% 64%;
   --destructive-foreground: 0 0% 100%;
-  --border: 220 18% 90%;
-  --input: 220 16% 88%;
-  --ring: 245 64% 56%;
-  --radius: 0.7rem;
+  --border: 212 30% 87%;
+  --input: 212 28% 83%;
+  --ring: 12 100% 67%;
+  --radius: 0.5rem;
 }
 
 .dark {
-  --background: 224 44% 6%;
-  --foreground: 210 40% 98%;
-  --card: 224 40% 9%;
-  --card-foreground: 210 40% 98%;
-  --primary: 245 75% 68%;
-  --primary-foreground: 224 44% 8%;
-  --secondary: 222 33% 15%;
-  --secondary-foreground: 210 40% 96%;
-  --muted: 222 33% 15%;
-  --muted-foreground: 215 18% 62%;
-  --accent: 245 40% 20%;
-  --accent-foreground: 245 70% 88%;
-  --destructive: 0 63% 44%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 220 24% 18%;
-  --input: 220 22% 22%;
-  --ring: 245 75% 68%;
+  --background: 209 32% 11%;
+  --foreground: 210 30% 95%;
+  --card: 210 30% 15%;
+  --card-foreground: 210 30% 95%;
+  --primary: 13 100% 68%;
+  --primary-foreground: 209 40% 12%;
+  --secondary: 210 24% 21%;
+  --secondary-foreground: 210 30% 94%;
+  --muted: 210 24% 21%;
+  --muted-foreground: 210 16% 66%;
+  --accent: 210 24% 24%;
+  --accent-foreground: 210 30% 92%;
+  --destructive: 357 70% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 210 20% 24%;
+  --input: 210 18% 28%;
+  --ring: 13 100% 68%;
 }
 
 * {
