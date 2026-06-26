@@ -58,6 +58,8 @@ model Workspace {
   cannedResponses CannedResponse[]
   macros        Macro[]
   favorites     Favorite[]
+  articleCategories ArticleCategory[]
+  articles      Article[]
   workflows     Workflow[]
   agentDocuments AgentDocument[]
   objectDefinitions ObjectDefinition[]
@@ -443,6 +445,42 @@ model Workflow {
 
   @@index([workspaceId, triggerType, enabled])
   @@map("workflows")
+}
+
+// Help center content is public-facing, so (like whatsapp_channels) it lives on
+// the control plane — no RLS; every query filters workspaceId explicitly. This
+// lets the unauthenticated public portal read articles without a tenant context.
+model ArticleCategory {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  name        String
+  slug        String
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  articles    Article[]
+
+  @@unique([workspaceId, slug])
+  @@map("article_categories")
+}
+
+model Article {
+  id          String           @id @default(uuid()) @db.Uuid
+  workspaceId String           @map("workspace_id") @db.Uuid
+  categoryId  String?          @map("category_id") @db.Uuid
+  title       String
+  slug        String
+  body        String
+  published   Boolean          @default(false)
+  position    Int              @default(0)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category    ArticleCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, categoryId])
+  @@map("articles")
 }
 
 model Favorite {

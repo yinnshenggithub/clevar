@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Building2, CircleDollarSign, MessageSquare, Bot, Workflow, Boxes, CheckSquare, BarChart3, Settings, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Users, Building2, CircleDollarSign, MessageSquare, Bot, Workflow, Boxes, CheckSquare, BarChart3, BookOpen, Settings, type LucideIcon } from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -17,6 +17,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/app/agents", label: "AI Agents", icon: Bot },
   { href: "/app/workflows", label: "Workflows", icon: Workflow },
   { href: "/app/reports", label: "Reports", icon: BarChart3 },
+  { href: "/app/help", label: "Help center", icon: BookOpen },
   { href: "/app/objects", label: "Custom objects", icon: Boxes },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
