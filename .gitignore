@@ -1,0 +1,26 @@
+# Reference codebases — NOT part of CLEVAR, never tracked or shipped
+/chatwoot-develop/
+/twenty-main/
+
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/
+
+# Build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Logs / OS
+*.log
+.DS_Store
+
+# Local storage
+.local-storage/
