@@ -12,6 +12,7 @@ import { ReplyForm } from "@/components/app/reply-form";
 import { AssignAgentSelect } from "@/components/app/assign-agent-select";
 import { ConversationControls, PriorityDot, StatusTag } from "@/components/app/conversation-controls";
 import { ConversationLabels, LabelDots } from "@/components/app/conversation-labels";
+import { MacroRunner } from "@/components/app/macro-runner";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,7 @@ export default async function InboxPage({
   const tab = TABS.find((t) => t.key === (s ?? "all")) ?? TABS[0];
   const ctx = await requireAuth();
 
-  const [data, agents, members, allLabels, channel] = await Promise.all([
+  const [data, agents, members, allLabels, canned, macros, channel] = await Promise.all([
     withTenant(ctx.workspaceId, async (tx) => {
       const where: Prisma.ConversationWhereInput = {
         ...(tab.status ? { status: tab.status } : {}),
@@ -72,6 +73,15 @@ export default async function InboxPage({
     withTenant(ctx.workspaceId, (tx) =>
       tx.label.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, color: true } }),
     ),
+    withTenant(ctx.workspaceId, (tx) =>
+      tx.cannedResponse.findMany({
+        orderBy: { shortcode: "asc" },
+        select: { id: true, shortcode: true, title: true, content: true },
+      }),
+    ),
+    withTenant(ctx.workspaceId, (tx) =>
+      tx.macro.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    ),
     prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } }),
   ]);
 
@@ -81,11 +91,19 @@ export default async function InboxPage({
     cv.labels.map((cl) => cl.label);
 
   const settingsBtn = (
-    <Link href="/app/inbox/settings">
-      <Button variant="outline" className="gap-2">
-        <Settings className="h-4 w-4" /> Settings
-      </Button>
-    </Link>
+    <div className="flex flex-wrap gap-2">
+      <Link href="/app/inbox/canned">
+        <Button variant="outline" size="sm">Canned</Button>
+      </Link>
+      <Link href="/app/inbox/macros">
+        <Button variant="outline" size="sm">Macros</Button>
+      </Link>
+      <Link href="/app/inbox/settings">
+        <Button variant="outline" className="gap-2">
+          <Settings className="h-4 w-4" /> Settings
+        </Button>
+      </Link>
+    </div>
   );
 
   if (!channel) {
@@ -225,6 +243,7 @@ export default async function InboxPage({
                     assignedUserId={data.active.assignedUserId}
                     members={memberList}
                   />
+                  <MacroRunner conversationId={data.active.id} macros={macros} />
                   <AssignAgentSelect
                     conversationId={data.active.id}
                     agents={agents}
@@ -285,7 +304,7 @@ export default async function InboxPage({
                 )}
               </div>
 
-              <ReplyForm conversationId={data.active.id} />
+              <ReplyForm conversationId={data.active.id} canned={canned} />
             </>
           ) : (
             <p className="p-6 text-center text-sm text-muted-foreground">Select a conversation.</p>

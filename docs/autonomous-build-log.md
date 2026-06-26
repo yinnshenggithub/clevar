@@ -65,7 +65,7 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 > Mark `[x]` only after build-passed AND pushed. Record commit hash in progress log.
 
 - [x] **W1 — Inbox lifecycle.** Conversation status→{OPEN,PENDING,SNOOZED,RESOLVED}, priority enum, snoozedUntil, assignedUserId (member), firstReplyAt, waitingSince, customAttributes; Message + `private` (internal note) + authorUserId. UI: status/priority/assignee controls, snooze, internal-note toggle, filter tabs. → `f09768b`, migration 11.
-- [ ] **W2 — Conversation labels/tags.** Label model + ConversationLabel join; assign/filter by label in inbox.
+- [x] **W2 — Conversation labels/tags.** Label model + ConversationLabel join; assign/filter by label in inbox. → `aa2b40d`, migration 12.
 - [ ] **W3 — Canned responses + Macros.** CannedResponse (shortcode+body), insert in reply form. Macro (ordered actions) one-click run on a conversation.
 - [ ] **W4 — Actor metadata + field rules.** created_by/updated_by (Uuid) on Company/Contact/Deal/CustomRecord; CustomFieldDef + `required`, `defaultValue`. Enforce in actions; show creator.
 - [ ] **W5 — Tasks + activity timeline.** Task model (title, due, status, assignee, parent link). ActivityEvent feed (record/field-change/note/task) shown on contact/company/deal/record detail.

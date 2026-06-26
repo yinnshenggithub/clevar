@@ -53,6 +53,8 @@ model Workspace {
   messages      Message[]
   labels        Label[]
   conversationLabels ConversationLabel[]
+  cannedResponses CannedResponse[]
+  macros        Macro[]
   workflows     Workflow[]
   agentDocuments AgentDocument[]
   objectDefinitions ObjectDefinition[]
@@ -389,6 +391,33 @@ model Workflow {
 
   @@index([workspaceId, triggerType, enabled])
   @@map("workflows")
+}
+
+model CannedResponse {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  shortcode   String
+  title       String
+  content     String
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, shortcode])
+  @@map("canned_responses")
+}
+
+model Macro {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  name        String
+  actions     Json      @default("[]") // ordered: [{type, value?}]
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("macros")
 }
 
 model Label {

@@ -1,13 +1,21 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { Send, Paperclip, X, StickyNote } from "lucide-react";
+import { Send, Paperclip, X, StickyNote, MessageSquareText } from "lucide-react";
 import { replyToConversation, type ReplyState } from "@/lib/actions/inbox";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-export function ReplyForm({ conversationId }: { conversationId: string }) {
+type Canned = { id: string; shortcode: string; title: string; content: string };
+
+export function ReplyForm({
+  conversationId,
+  canned = [],
+}: {
+  conversationId: string;
+  canned?: Canned[];
+}) {
   const [state, formAction, pending] = useActionState<ReplyState, FormData>(
     (prev, fd) => replyToConversation(conversationId, prev, fd),
     {},
@@ -16,11 +24,14 @@ export function ReplyForm({ conversationId }: { conversationId: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [mode, setMode] = useState<"reply" | "note">("reply");
+  const [body, setBody] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!pending && !state.error) {
       formRef.current?.reset();
       setFileName("");
+      setBody("");
     }
   }, [pending, state]);
 
@@ -28,20 +39,57 @@ export function ReplyForm({ conversationId }: { conversationId: string }) {
 
   return (
     <div className={cn("border-t border-border", isNote && "bg-amber-500/5")}>
-      <div className="flex gap-1 px-3 pt-2">
-        {(["reply", "note"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={cn(
-              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-              mode === m ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
+      <div className="flex items-center justify-between gap-1 px-3 pt-2">
+        <div className="flex gap-1">
+          {(["reply", "note"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                mode === m ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m === "reply" ? "Reply" : "Internal note"}
+            </button>
+          ))}
+        </div>
+        {canned.length > 0 && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setPickerOpen((o) => !o)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <MessageSquareText className="h-3.5 w-3.5" /> Canned
+            </button>
+            {pickerOpen && (
+              <>
+                <button className="fixed inset-0 z-10 cursor-default" aria-hidden tabIndex={-1} onClick={() => setPickerOpen(false)} />
+                <div className="absolute bottom-full right-0 z-20 mb-1 max-h-64 w-72 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-card">
+                  {canned.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setBody(c.content);
+                        setPickerOpen(false);
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                    >
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <code className="rounded bg-secondary px-1 text-[11px]">/{c.shortcode}</code>
+                        {c.title}
+                      </div>
+                      <p className="line-clamp-1 text-xs text-muted-foreground">{c.content}</p>
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
-          >
-            {m === "reply" ? "Reply" : "Internal note"}
-          </button>
-        ))}
+          </div>
+        )}
       </div>
 
       {state.error && <p className="px-3 pt-2 text-xs text-destructive">{state.error}</p>}
@@ -79,6 +127,8 @@ export function ReplyForm({ conversationId }: { conversationId: string }) {
         <Textarea
           name="body"
           rows={1}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
           placeholder={isNote ? "Add an internal note (not sent to the customer)…" : "Type a reply or attach a file…"}
           className="max-h-32 min-h-[40px] flex-1 resize-none"
         />
