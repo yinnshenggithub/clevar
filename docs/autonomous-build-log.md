@@ -84,6 +84,9 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 ## Context / compaction protocol (user directive 2026-06-27)
 Checkpoint at every wave boundary: build-pass → migrate → commit → push → update this log. State lives in git + this file, so an auto-compaction (the harness summarizes near context limit) is seamless — after it, re-read this file and continue from the first unchecked wave. Can't self-invoke `/compact`; rely on git+log durability. Never leave a wave half-committed across a compaction.
 
+## Later waves (post-initial-plan, user-requested)
+- [x] **W17 — Meta + TikTok channels & lead ingestion.** → `6465037`, migration 22_channel_connections. ChannelConnection (control-plane). Meta webhook (Messenger + IG DMs → inbox; Lead Ads → contact+note; sig via META_APP_SECRET). TikTok webhook (lead forms → contact). Outbound Messenger/IG via page token (inbox + AI). Rules/handoff apply to social. Channels settings page + guides. Credential-gated: user supplies Meta page token / TikTok advertiser token to activate (verify token = META_VERIFY_TOKEN || WHATSAPP_VERIFY_TOKEN). TikTok DM ingestion noted as unavailable via public API (lead forms only).
+
 ## Progress log
 - 2026-06-27: Prep done — schema read, RLS pattern confirmed, DB reachable, SSH push verified, log created. Gap-audit workflow running.
 - 2026-06-27: Audit done (49 baseline / 233 gaps). Wave plan written.
