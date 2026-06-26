@@ -30,3 +30,4 @@ next-env.d.ts
 
 # Local storage
 .local-storage/
+.env*

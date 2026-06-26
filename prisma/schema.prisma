@@ -42,6 +42,11 @@ model Workspace {
   stages      Stage[]
   deals       Deal[]
   notes       Note[]
+  aiAgents      AiAgent[]
+  aiConversations AiConversation[]
+  aiMessages    AiMessage[]
+  aiUsage       AiUsage[]
+  credits       WorkspaceCredits?
 
   @@map("workspaces")
 }
@@ -184,6 +189,84 @@ model Note {
 
   @@index([workspaceId, parentType, parentId, createdAt])
   @@map("notes")
+}
+
+// ─────────────────────────── AI layer (tenant plane, RLS) ─────────────────────
+
+model AiAgent {
+  id           String           @id @default(uuid()) @db.Uuid
+  workspaceId  String           @map("workspace_id") @db.Uuid
+  name         String
+  instructions String           @default("") // system prompt / context
+  model        String           @default("claude-haiku-4-5") @map("model")
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz
+  workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations AiConversation[]
+
+  @@index([workspaceId, createdAt])
+  @@map("ai_agents")
+}
+
+model WorkspaceCredits {
+  workspaceId  String    @id @map("workspace_id") @db.Uuid
+  monthlyLimit Int       @default(1000) @map("monthly_limit")
+  used         Int       @default(0)
+  periodStart  DateTime  @default(now()) @map("period_start") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_credits")
+}
+
+model AiUsage {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @map("workspace_id") @db.Uuid
+  agentId        String?   @map("agent_id") @db.Uuid
+  conversationId String?   @map("conversation_id") @db.Uuid
+  credits        Int
+  tokensIn       Int       @default(0) @map("tokens_in")
+  tokensOut      Int       @default(0) @map("tokens_out")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("ai_usage")
+}
+
+model AiConversation {
+  id          String      @id @default(uuid()) @db.Uuid
+  workspaceId String      @map("workspace_id") @db.Uuid
+  agentId     String      @map("agent_id") @db.Uuid
+  title       String      @default("New chat")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent       AiAgent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages    AiMessage[]
+
+  @@index([workspaceId, agentId, updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String         @id @default(uuid()) @db.Uuid
+  workspaceId    String         @map("workspace_id") @db.Uuid
+  conversationId String         @map("conversation_id") @db.Uuid
+  role           AiMessageRole
+  content        String
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+enum AiMessageRole {
+  USER
+  ASSISTANT
 }
 
 enum WorkspaceRole {

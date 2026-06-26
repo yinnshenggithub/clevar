@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Building2, CircleDollarSign, Settings } from "lucide-react";
+import { LayoutDashboard, Users, Building2, CircleDollarSign, Bot, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -10,6 +10,7 @@ const NAV = [
   { href: "/app/contacts", label: "Contacts", icon: Users },
   { href: "/app/companies", label: "Companies", icon: Building2 },
   { href: "/app/deals", label: "Deals", icon: CircleDollarSign },
+  { href: "/app/agents", label: "AI Agents", icon: Bot },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
