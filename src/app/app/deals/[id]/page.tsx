@@ -6,6 +6,7 @@ import { getLinkedRecords } from "@/lib/object-data";
 import { PageHeader } from "@/components/app/page-header";
 import { DealForm } from "@/components/app/deal-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
+import { RecordActivity } from "@/components/app/record-activity";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -96,6 +97,7 @@ export default async function DealDetailPage({
         </CardContent>
       </Card>
       <LinkedRecordsCard linked={linked} />
+      <RecordActivity parentType="DEAL" parentId={id} />
     </div>
   );
 }

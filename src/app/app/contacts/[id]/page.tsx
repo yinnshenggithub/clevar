@@ -6,6 +6,7 @@ import { getLinkedRecords } from "@/lib/object-data";
 import { PageHeader } from "@/components/app/page-header";
 import { ContactForm } from "@/components/app/contact-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
+import { RecordActivity } from "@/components/app/record-activity";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -60,6 +61,7 @@ export default async function ContactDetailPage({
         </CardContent>
       </Card>
       <LinkedRecordsCard linked={linked} />
+      <RecordActivity parentType="CONTACT" parentId={id} />
     </div>
   );
 }

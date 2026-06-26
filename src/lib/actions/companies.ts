@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { logEventTx } from "@/lib/activity";
 
 export interface FormState {
   error?: string;
@@ -32,7 +33,7 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
 
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
-      await tx.company.create({
+      const c = await tx.company.create({
         data: {
           workspaceId: ctx.workspaceId,
           name: v.name,
@@ -42,6 +43,7 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
           updatedById: ctx.userId,
         },
       });
+      await logEventTx(tx, ctx.workspaceId, "COMPANY", c.id, "created", "Company created", ctx.userId);
     });
   } catch (e) {
     console.error("createCompany failed", e);

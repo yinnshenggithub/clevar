@@ -13,6 +13,7 @@ import { getLinkedRecords } from "@/lib/object-data";
 import { PageHeader } from "@/components/app/page-header";
 import { CompanyForm } from "@/components/app/company-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
+import { RecordActivity } from "@/components/app/record-activity";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -132,6 +133,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         </Card>
       </div>
       <LinkedRecordsCard linked={linked} />
+      <RecordActivity parentType="COMPANY" parentId={id} />
     </div>
   );
 }

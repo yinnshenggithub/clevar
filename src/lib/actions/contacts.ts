@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { logEventTx } from "@/lib/activity";
 import { runWorkflows } from "@/lib/workflow";
 import { normalizePhone, InvalidPhoneError } from "@/lib/phone";
 
@@ -83,7 +84,7 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
   try {
     const created = await withTenant(ctx.workspaceId, async (tx) => {
       const companyId = await resolveCompany(tx, ctx.workspaceId, v);
-      return tx.contact.create({
+      const c = await tx.contact.create({
         data: {
           workspaceId: ctx.workspaceId,
           firstName: v.firstName || null,
@@ -96,6 +97,8 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
           updatedById: ctx.userId,
         },
       });
+      await logEventTx(tx, ctx.workspaceId, "CONTACT", c.id, "created", "Contact created", ctx.userId);
+      return c;
     });
     after(() =>
       runWorkflows(ctx.workspaceId, "contact_created", {

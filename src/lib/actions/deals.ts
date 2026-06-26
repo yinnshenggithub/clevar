@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { StageType, DealStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { logEventTx } from "@/lib/activity";
 import { runWorkflows } from "@/lib/workflow";
 
 export interface FormState {
@@ -95,6 +96,7 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
         },
       });
       await syncDealContacts(tx, ctx.workspaceId, deal.id, formData.getAll("contactIds").map(String).filter(Boolean));
+      await logEventTx(tx, ctx.workspaceId, "DEAL", deal.id, "created", `Deal created: ${v.title}`, ctx.userId);
       return deal;
     });
     after(() =>
@@ -170,6 +172,7 @@ export async function moveDeal(dealId: string, stageId: string): Promise<void> {
       where: { id: dealId },
       data: { stageId, pipelineId: stage.pipelineId, status: statusForStage[stage.stageType] },
     });
+    await logEventTx(tx, ctx.workspaceId, "DEAL", dealId, "stage_changed", `Moved to ${stage.name}`, ctx.userId);
     return stage.name;
   });
   after(() =>

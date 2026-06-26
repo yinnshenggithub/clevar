@@ -67,7 +67,7 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - [x] **W1 — Inbox lifecycle.** Conversation status→{OPEN,PENDING,SNOOZED,RESOLVED}, priority enum, snoozedUntil, assignedUserId (member), firstReplyAt, waitingSince, customAttributes; Message + `private` (internal note) + authorUserId. UI: status/priority/assignee controls, snooze, internal-note toggle, filter tabs. → `f09768b`, migration 11.
 - [x] **W2 — Conversation labels/tags.** Label model + ConversationLabel join; assign/filter by label in inbox. → `aa2b40d`, migration 12.
 - [x] **W3 — Canned responses + Macros.** CannedResponse (shortcode+body), insert in reply form. Macro (ordered actions) one-click run on a conversation. → `dc5d414`, migration 13. Pages: /app/inbox/canned, /app/inbox/macros.
-- [ ] **W4 — Actor metadata + field rules.** created_by/updated_by (Uuid) on Company/Contact/Deal/CustomRecord; CustomFieldDef + `required`, `defaultValue`. Enforce in actions; show creator.
+- [x] **W4 — Actor metadata + field rules.** created_by/updated_by (Uuid) on Company/Contact/Deal/CustomRecord; CustomFieldDef + `required`, `defaultValue`. Enforce in actions; defaults prefilled. → `269c514`, migration 14. Actor *display* + diffs deferred to W11 (audit). Field-reorder dropped (not core).
 - [ ] **W5 — Tasks + activity timeline.** Task model (title, due, status, assignee, parent link). ActivityEvent feed (record/field-change/note/task) shown on contact/company/deal/record detail.
 - [ ] **W6 — Field types.** Add currency, multi_select, url, email, phone, rich_text, rating to custom-objects FIELD_TYPES + form inputs + render.
 - [ ] **W7 — Saved views + table UX.** SavedView (object, filters json, sort, group, columns); advanced filter builder, multi-sort, group-by, column show/hide, bulk delete/select on CRM lists + custom objects.
@@ -85,3 +85,4 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - 2026-06-27: **W1 shipped** `f09768b` (migration 11_inbox_lifecycle). Build green, deployed. Note: snoozed convos auto-reopen on inbound now; time-based auto-reopen deferred to W13 cron.
 - 2026-06-27: **W2 shipped** `aa2b40d` (migration 12_labels).
 - 2026-06-27: **W3 shipped** `dc5d414` (migration 13_canned_macros). Canned edit is delete+recreate for now (acceptable).
+- 2026-06-27: **W4 shipped** `269c514` (migration 14_actor_field_rules).
