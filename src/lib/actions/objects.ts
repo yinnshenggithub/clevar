@@ -7,7 +7,7 @@ import { z } from "zod";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { slugify } from "@/lib/utils";
-import { FIELD_TYPES } from "@/lib/custom-objects";
+import { FIELD_TYPES, isRelationType } from "@/lib/custom-objects";
 
 export interface FormState {
   error?: string;
@@ -86,6 +86,8 @@ export async function addField(objectDefinitionId: string, _prev: FormState, for
 
   const label = String(formData.get("label") ?? "").trim();
   const type = String(formData.get("type") ?? "");
+  const required = formData.get("required") === "on";
+  const defaultValue = String(formData.get("defaultValue") ?? "").trim() || null;
   if (!label) return { error: "Field label is required." };
   if (!FIELD_TYPES.includes(type as never)) return { error: "Invalid field type." };
 
@@ -115,6 +117,8 @@ export async function addField(objectDefinitionId: string, _prev: FormState, for
           key: keyFromLabel(label),
           label,
           type,
+          required: isRelationType(type) ? false : required,
+          defaultValue: type === "boolean" || isRelationType(type) ? null : defaultValue,
           options: options as Prisma.InputJsonValue,
           position: count,
         },
@@ -137,9 +141,18 @@ export async function deleteField(fieldId: string, slug: string): Promise<void> 
 
 // ── Records ───────────────────────────────────────────────────────────────
 
+type RecordFieldDef = {
+  key: string;
+  type: string;
+  label: string;
+  required: boolean;
+  defaultValue: string | null;
+};
+
 function readValues(
-  fields: { key: string; type: string }[],
+  fields: RecordFieldDef[],
   formData: FormData,
+  applyDefaults: boolean,
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const f of fields) {
@@ -152,13 +165,30 @@ function readValues(
       values[f.key] = raw === "on";
     } else if (f.type === "number") {
       const n = Number(raw);
-      values[f.key] = raw === null || raw === "" || Number.isNaN(n) ? null : n;
+      let v = raw === null || raw === "" || Number.isNaN(n) ? null : n;
+      if (v === null && applyDefaults && f.defaultValue != null && f.defaultValue !== "" && !Number.isNaN(Number(f.defaultValue))) {
+        v = Number(f.defaultValue);
+      }
+      values[f.key] = v;
     } else {
       const s = raw == null ? "" : String(raw).trim();
-      values[f.key] = s || null;
+      values[f.key] = s || (applyDefaults ? f.defaultValue || null : null);
     }
   }
   return values;
+}
+
+/** Labels of required fields left empty, for a friendly validation message. */
+function missingRequired(fields: RecordFieldDef[], values: Record<string, unknown>): string[] {
+  return fields
+    .filter((f) => f.required)
+    .filter((f) => {
+      const v = values[f.key];
+      if (Array.isArray(v)) return v.length === 0;
+      if (typeof v === "boolean") return false;
+      return v == null || v === "";
+    })
+    .map((f) => f.label);
 }
 
 export async function createRecord(slug: string, _prev: FormState, formData: FormData): Promise<FormState> {
@@ -167,15 +197,23 @@ export async function createRecord(slug: string, _prev: FormState, formData: For
     await withTenant(ctx.workspaceId, async (tx) => {
       const def = await tx.objectDefinition.findFirst({ where: { slug }, include: { fields: true } });
       if (!def) throw new Error("OBJECT_NOT_FOUND");
+      const values = readValues(def.fields, formData, true);
+      const missing = missingRequired(def.fields, values);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
       await tx.customRecord.create({
         data: {
           workspaceId: ctx.workspaceId,
           objectDefinitionId: def.id,
-          values: readValues(def.fields, formData) as Prisma.InputJsonValue,
+          values: values as Prisma.InputJsonValue,
+          createdById: ctx.userId,
+          updatedById: ctx.userId,
         },
       });
     });
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
+      return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
+    }
     console.error("createRecord failed", e);
     return { error: "Could not save the record." };
   }
@@ -189,12 +227,18 @@ export async function updateRecord(slug: string, id: string, _prev: FormState, f
     await withTenant(ctx.workspaceId, async (tx) => {
       const def = await tx.objectDefinition.findFirst({ where: { slug }, include: { fields: true } });
       if (!def) throw new Error("OBJECT_NOT_FOUND");
+      const values = readValues(def.fields, formData, false);
+      const missing = missingRequired(def.fields, values);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
       await tx.customRecord.update({
         where: { id },
-        data: { values: readValues(def.fields, formData) as Prisma.InputJsonValue },
+        data: { values: values as Prisma.InputJsonValue, updatedById: ctx.userId },
       });
     });
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
+      return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
+    }
     console.error("updateRecord failed", e);
     return { error: "Could not update the record." };
   }

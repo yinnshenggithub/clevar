@@ -92,6 +92,8 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
           phone,
           jobTitle: v.jobTitle || null,
           companyId,
+          createdById: ctx.userId,
+          updatedById: ctx.userId,
         },
       });
     });
@@ -143,6 +145,7 @@ export async function updateContact(
           phone,
           jobTitle: v.jobTitle || null,
           companyId,
+          updatedById: ctx.userId,
         },
       });
     });

@@ -25,6 +25,8 @@ export default async function NewRecordPage({ params }: { params: Promise<{ slug
         key: f.key,
         label: f.label,
         type: f.type,
+        required: f.required,
+        defaultValue: f.defaultValue,
         choices: selectChoices(f.options),
         relOptions:
           isRelationType(f.type) && relationTarget(f.options)

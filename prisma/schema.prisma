@@ -103,6 +103,8 @@ model Company {
   domain       String?
   industry     String?
   customFields Json      @default("{}") @map("custom_fields")
+  createdById  String?   @map("created_by_id") @db.Uuid
+  updatedById  String?   @map("updated_by_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
@@ -125,6 +127,8 @@ model Contact {
   phone        String? // normalized E.164, incl. country code
   jobTitle     String?   @map("job_title")
   customFields Json      @default("{}") @map("custom_fields")
+  createdById  String?   @map("created_by_id") @db.Uuid
+  updatedById  String?   @map("updated_by_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
@@ -180,6 +184,8 @@ model Deal {
   status          DealStatus @default(OPEN)
   expectedCloseAt DateTime?  @map("expected_close_at") @db.Date
   customFields    Json       @default("{}") @map("custom_fields")
+  createdById     String?    @map("created_by_id") @db.Uuid
+  updatedById     String?    @map("updated_by_id") @db.Uuid
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz
@@ -521,6 +527,8 @@ model CustomFieldDef {
   key                String
   label              String
   type               String // text | number | boolean | date | select | relation
+  required           Boolean          @default(false)
+  defaultValue       String?          @map("default_value")
   options            Json             @default("{}") // select: { choices: string[] }; relation: { target: string }
   position           Int              @default(0)
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
@@ -537,6 +545,8 @@ model CustomRecord {
   workspaceId        String           @map("workspace_id") @db.Uuid
   objectDefinitionId String           @map("object_definition_id") @db.Uuid
   values             Json             @default("{}")
+  createdById        String?          @map("created_by_id") @db.Uuid
+  updatedById        String?          @map("updated_by_id") @db.Uuid
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt          DateTime?        @map("deleted_at") @db.Timestamptz

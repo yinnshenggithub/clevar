@@ -38,6 +38,8 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
           name: v.name,
           domain: v.domain || null,
           industry: v.industry || null,
+          createdById: ctx.userId,
+          updatedById: ctx.userId,
         },
       });
     });
@@ -64,7 +66,7 @@ export async function updateCompany(
     await withTenant(ctx.workspaceId, async (tx) => {
       await tx.company.update({
         where: { id },
-        data: { name: v.name, domain: v.domain || null, industry: v.industry || null },
+        data: { name: v.name, domain: v.domain || null, industry: v.industry || null, updatedById: ctx.userId },
       });
     });
   } catch (e) {

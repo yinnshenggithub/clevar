@@ -90,6 +90,8 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
           status: statusForStage[stage.stageType],
           companyId: v.companyId || null,
           expectedCloseAt: v.expectedCloseAt ? new Date(v.expectedCloseAt) : null,
+          createdById: ctx.userId,
+          updatedById: ctx.userId,
         },
       });
       await syncDealContacts(tx, ctx.workspaceId, deal.id, formData.getAll("contactIds").map(String).filter(Boolean));
@@ -142,6 +144,7 @@ export async function updateDeal(
           status: statusForStage[stage.stageType],
           companyId: v.companyId || null,
           expectedCloseAt: v.expectedCloseAt ? new Date(v.expectedCloseAt) : null,
+          updatedById: ctx.userId,
         },
       });
       await syncDealContacts(tx, ctx.workspaceId, id, formData.getAll("contactIds").map(String).filter(Boolean));

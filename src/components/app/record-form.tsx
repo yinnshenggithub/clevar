@@ -13,6 +13,8 @@ export interface RecordFieldDef {
   key: string;
   label: string;
   type: string;
+  required: boolean;
+  defaultValue: string | null;
   choices: string[];
   relOptions: { id: string; label: string }[];
 }
@@ -30,9 +32,10 @@ export function RecordForm({
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, {});
   const router = useRouter();
-  const val = (k: string) => {
-    const v = defaults?.[k];
-    return v == null ? "" : String(v);
+  const init = (f: RecordFieldDef) => {
+    const v = defaults?.[f.key];
+    if (v != null) return String(v);
+    return f.defaultValue ?? "";
   };
 
   return (
@@ -42,24 +45,27 @@ export function RecordForm({
       )}
       {fields.map((f) => (
         <div key={f.key} className="space-y-2">
-          <Label htmlFor={f.key}>{f.label}</Label>
+          <Label htmlFor={f.key}>
+            {f.label}
+            {f.required && <span className="ml-0.5 text-destructive">*</span>}
+          </Label>
           {f.type === "boolean" ? (
             <div>
               <input id={f.key} name={f.key} type="checkbox" defaultChecked={defaults?.[f.key] === true} className="h-4 w-4" />
             </div>
           ) : f.type === "number" ? (
-            <Input id={f.key} name={f.key} type="number" step="any" defaultValue={val(f.key)} />
+            <Input id={f.key} name={f.key} type="number" step="any" required={f.required} defaultValue={init(f)} />
           ) : f.type === "date" ? (
-            <Input id={f.key} name={f.key} type="date" defaultValue={val(f.key)} />
+            <Input id={f.key} name={f.key} type="date" required={f.required} defaultValue={init(f)} />
           ) : f.type === "select" ? (
-            <Select id={f.key} name={f.key} defaultValue={val(f.key)}>
+            <Select id={f.key} name={f.key} required={f.required} defaultValue={init(f)}>
               <option value="">—</option>
               {f.choices.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </Select>
           ) : f.type === "relation" ? (
-            <Select id={f.key} name={f.key} defaultValue={val(f.key)}>
+            <Select id={f.key} name={f.key} defaultValue={init(f)}>
               <option value="">— none —</option>
               {f.relOptions.map((o) => (
                 <option key={o.id} value={o.id}>{o.label}</option>
@@ -73,7 +79,7 @@ export function RecordForm({
               emptyText="No records to link"
             />
           ) : (
-            <Input id={f.key} name={f.key} defaultValue={val(f.key)} />
+            <Input id={f.key} name={f.key} required={f.required} defaultValue={init(f)} />
           )}
         </div>
       ))}

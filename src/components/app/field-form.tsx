@@ -56,6 +56,18 @@ export function FieldForm({
           </Select>
         </div>
       )}
+      {!isRelationType(type) && type !== "boolean" && (
+        <div className="space-y-2">
+          <Label htmlFor="defaultValue">Default value (optional)</Label>
+          <Input id="defaultValue" name="defaultValue" placeholder="Pre-filled when creating a record" />
+        </div>
+      )}
+      {!isRelationType(type) && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="required" className="h-4 w-4" />
+          Required field
+        </label>
+      )}
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
       <Button type="submit" size="sm" disabled={pending}>
         {pending ? "Adding…" : "Add field"}
