@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Settings, MessageSquare, ArrowLeft } from "lucide-react";
 import type { Prisma, ConversationStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
@@ -24,6 +25,15 @@ const TABS: { key: string; label: string; status?: ConversationStatus }[] = [
   { key: "snoozed", label: "Snoozed", status: "SNOOZED" },
   { key: "resolved", label: "Resolved", status: "RESOLVED" },
 ];
+
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+      <dt className="truncate text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words font-medium">{value ?? <span className="text-muted-foreground">—</span>}</dd>
+    </div>
+  );
+}
 
 export default async function InboxPage({
   searchParams,
@@ -61,7 +71,13 @@ export default async function InboxPage({
       const messages = activeId
         ? await tx.message.findMany({ where: { conversationId: activeId }, orderBy: { createdAt: "asc" }, take: 200 })
         : [];
-      return { convos, active, messages };
+      const contact = active?.contactId
+        ? await tx.contact.findFirst({ where: { id: active.contactId, deletedAt: null } })
+        : null;
+      const company = contact?.companyId
+        ? await tx.company.findFirst({ where: { id: contact.companyId }, select: { id: true, name: true } })
+        : null;
+      return { convos, active, messages, contact, company };
     }),
     withTenant(ctx.workspaceId, (tx) =>
       tx.aiAgent.findMany({ where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -147,6 +163,16 @@ export default async function InboxPage({
   }
 
   const showThread = Boolean(data.active);
+  const rawAttrs = data.active?.customAttributes;
+  const attrEntries =
+    rawAttrs && typeof rawAttrs === "object" && !Array.isArray(rawAttrs)
+      ? Object.entries(rawAttrs as Record<string, unknown>).filter(([, v]) => v != null && v !== "")
+      : [];
+  const activeContactName = data.contact
+    ? [data.contact.firstName, data.contact.lastName].filter(Boolean).join(" ") ||
+      data.active?.customerName ||
+      data.active?.customerPhone
+    : data.active?.customerName || data.active?.customerPhone;
   const tabHref = (key: string) => {
     const p = new URLSearchParams();
     if (key !== "all") p.set("s", key);
@@ -170,7 +196,7 @@ export default async function InboxPage({
         action={settingsBtn}
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[300px_1fr]">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_340px]">
         {/* Conversation list */}
         <Card className={cn("overflow-hidden", showThread && c ? "hidden md:block" : "block")}>
           <div className="p-3 pb-2">
@@ -334,6 +360,77 @@ export default async function InboxPage({
               </div>
 
               <ReplyForm conversationId={data.active.id} canned={canned} />
+            </>
+          ) : (
+            <p className="p-6 text-center text-sm text-muted-foreground">Select a conversation.</p>
+          )}
+        </Card>
+
+        {/* Contact details */}
+        <Card className="hidden flex-col xl:flex">
+          {data.active ? (
+            <>
+              <div className="flex items-center justify-between gap-2 border-b border-border p-3">
+                <div className="text-sm font-semibold">Contact details</div>
+                {data.contact && (
+                  <Link href={`/app/contacts/${data.contact.id}`} className="text-xs font-medium text-primary hover:underline">
+                    Open contact
+                  </Link>
+                )}
+              </div>
+              <div className="flex-1 space-y-4 overflow-y-auto p-4" style={{ maxHeight: "calc(100vh - 16rem)" }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                    {(activeContactName || "?").slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{activeContactName}</div>
+                    <div className="text-xs text-muted-foreground">{CHANNEL_LABEL[data.active.channelType] ?? data.active.channelType}</div>
+                  </div>
+                </div>
+
+                <dl className="space-y-2 border-t border-border pt-3 text-sm">
+                  <DetailRow label="Phone" value={data.contact?.phone || data.active.customerPhone} />
+                  <DetailRow label="Email" value={data.contact?.email} />
+                  <DetailRow label="Job title" value={data.contact?.jobTitle} />
+                  <DetailRow
+                    label="Company"
+                    value={data.company ? <Link href={`/app/companies/${data.company.id}`} className="text-primary hover:underline">{data.company.name}</Link> : null}
+                  />
+                  <DetailRow label="Status" value={<StatusTag status={data.active.status} />} />
+                  <DetailRow label="Assigned" value={data.active.assignedUserId ? memberNameById.get(data.active.assignedUserId) : null} />
+                </dl>
+
+                {attrEntries.length > 0 && (
+                  <div className="border-t border-border pt-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact fields</div>
+                    <dl className="space-y-2 text-sm">
+                      {attrEntries.map(([k, v]) => (
+                        <DetailRow key={k} label={k} value={String(v)} />
+                      ))}
+                    </dl>
+                  </div>
+                )}
+
+                {labelsOf(data.active).length > 0 && (
+                  <div className="border-t border-border pt-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Labels</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {labelsOf(data.active).map((l) => (
+                        <span key={l.id} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-white" style={{ backgroundColor: l.color }}>
+                          {l.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!data.contact && (
+                  <p className="rounded-md bg-secondary/50 p-2.5 text-xs text-muted-foreground">
+                    No CRM contact linked to this conversation yet.
+                  </p>
+                )}
+              </div>
             </>
           ) : (
             <p className="p-6 text-center text-sm text-muted-foreground">Select a conversation.</p>
