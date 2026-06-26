@@ -54,13 +54,13 @@ export async function POST(req: Request) {
       const name: string | null = value.contacts?.[0]?.profile?.name ?? null;
 
       for (const msg of messages) {
-        if (msg.type !== "text") continue;
         const phone = waPhoneToE164(msg.from);
-        const text: string = msg.text?.body ?? "";
-        const convoId = await persistInbound(channel, phone, name, text, msg.id);
+        const parsed = parseInbound(msg);
+        if (!parsed) continue; // unsupported message type
+        const convoId = await persistInbound(channel, phone, name, parsed, msg.id);
         // Process automation + AI reply after acking Meta with a 200.
         after(() =>
-          processMessageReceived(channel, convoId, phone, text).catch((e) =>
+          processMessageReceived(channel, convoId, phone, parsed.body).catch((e) =>
             console.error("processMessageReceived failed", e),
           ),
         );
@@ -71,11 +71,39 @@ export async function POST(req: Request) {
   return new Response("ok", { status: 200 });
 }
 
+interface ParsedInbound {
+  type: string;
+  body: string;
+  mediaId: string | null;
+  mediaMime: string | null;
+  mediaFilename: string | null;
+}
+
+const MEDIA_TYPES = ["image", "video", "audio", "document", "sticker", "voice"];
+
+/** Extracts text or media from a WhatsApp inbound message; null for unsupported types. */
+function parseInbound(msg: any): ParsedInbound | null {
+  if (msg.type === "text") {
+    return { type: "text", body: msg.text?.body ?? "", mediaId: null, mediaMime: null, mediaFilename: null };
+  }
+  if (MEDIA_TYPES.includes(msg.type)) {
+    const media = msg[msg.type] ?? {};
+    return {
+      type: msg.type === "voice" ? "audio" : msg.type,
+      body: media.caption ?? "",
+      mediaId: media.id ?? null,
+      mediaMime: media.mime_type ?? null,
+      mediaFilename: media.filename ?? null,
+    };
+  }
+  return null;
+}
+
 async function persistInbound(
   channel: Channel,
   phone: string,
   name: string | null,
-  text: string,
+  parsed: ParsedInbound,
   waId: string | undefined,
 ): Promise<string> {
   return withTenant(channel.workspaceId, async (tx) => {
@@ -99,7 +127,17 @@ async function persistInbound(
       });
     }
     await tx.message.create({
-      data: { workspaceId: channel.workspaceId, conversationId: convo.id, direction: "INBOUND", body: text, waMessageId: waId },
+      data: {
+        workspaceId: channel.workspaceId,
+        conversationId: convo.id,
+        direction: "INBOUND",
+        body: parsed.body,
+        type: parsed.type,
+        mediaId: parsed.mediaId,
+        mediaMime: parsed.mediaMime,
+        mediaFilename: parsed.mediaFilename,
+        waMessageId: waId,
+      },
     });
     await tx.conversation.update({
       where: { id: convo.id },

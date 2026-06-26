@@ -139,20 +139,32 @@ export default async function InboxPage({
               </div>
 
               <div className="flex-1 space-y-3 overflow-y-auto p-4" style={{ maxHeight: "calc(100vh - 20rem)" }}>
-                {data.messages.map((m) => (
-                  <div key={m.id} className={cn("flex", m.direction === "OUTBOUND" ? "justify-end" : "justify-start")}>
-                    <div
-                      className={cn(
-                        "max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm",
-                        m.direction === "OUTBOUND"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground",
-                      )}
-                    >
-                      {m.body}
+                {data.messages.map((m) => {
+                  const src = m.mediaId ? `/api/whatsapp/media/${m.mediaId}` : null;
+                  return (
+                    <div key={m.id} className={cn("flex", m.direction === "OUTBOUND" ? "justify-end" : "justify-start")}>
+                      <div
+                        className={cn(
+                          "max-w-[80%] space-y-1 whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm",
+                          m.direction === "OUTBOUND"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary text-secondary-foreground",
+                        )}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {src && m.type === "image" && <img src={src} alt="attachment" className="max-h-64 rounded-lg" />}
+                        {src && m.type === "video" && <video controls src={src} className="max-h-64 rounded-lg" />}
+                        {src && m.type === "audio" && <audio controls src={src} className="w-56" />}
+                        {src && m.type === "document" && (
+                          <a href={src} target="_blank" rel="noreferrer" className="flex items-center gap-1 underline">
+                            📄 {m.mediaFilename || "Document"}
+                          </a>
+                        )}
+                        {m.body && <div>{m.body}</div>}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {data.messages.length === 0 && (
                   <p className="text-center text-sm text-muted-foreground">No messages yet.</p>
                 )}

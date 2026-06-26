@@ -340,6 +340,10 @@ model Message {
   conversationId String           @map("conversation_id") @db.Uuid
   direction      MessageDirection
   body           String
+  type           String           @default("text") // text | image | video | audio | document | sticker
+  mediaId        String?          @map("media_id")
+  mediaMime      String?          @map("media_mime")
+  mediaFilename  String?          @map("media_filename")
   waMessageId    String?          @map("wa_message_id")
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
   workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
