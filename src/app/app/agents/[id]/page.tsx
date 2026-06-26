@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { MessageSquare, FileText } from "lucide-react";
+import { MessageSquare, FileText, FlaskConical } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
@@ -8,6 +8,8 @@ import { updateAgent, deleteAgent } from "@/lib/actions/agents";
 import { deleteDocument } from "@/lib/actions/knowledge";
 import { PageHeader } from "@/components/app/page-header";
 import { AgentForm, type AgentDefaults } from "@/components/app/agent-form";
+import { AgentTester } from "@/components/app/agent-tester";
+import type { AgentRule } from "@/lib/agent-rule-match";
 import { KnowledgeForm } from "@/components/app/knowledge-form";
 import { UrlKnowledgeForm } from "@/components/app/url-knowledge-form";
 import { DeleteButton } from "@/components/app/delete-button";
@@ -78,6 +80,27 @@ export default async function AgentDetailPage({
               rules: Array.isArray(agent.rules) ? (agent.rules as AgentDefaults["rules"]) : [],
             }}
             submitLabel="Save changes"
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FlaskConical className="h-4 w-4" /> Test your agent
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Chat against this agent&apos;s saved configuration and knowledge base. Pick a model to
+            compare replies. Messages aren&apos;t saved but use AI credits, and your if-then rules
+            run live. <span className="font-medium text-foreground">Save changes first to test edits.</span>
+          </p>
+          <AgentTester
+            agentId={id}
+            defaultModel={agent.model}
+            greeting={agent.greeting}
+            rules={Array.isArray(agent.rules) ? (agent.rules as unknown as AgentRule[]) : []}
           />
         </CardContent>
       </Card>

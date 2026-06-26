@@ -1,26 +1,8 @@
 import "server-only";
 import { withTenant } from "./tenant";
+import { matchRule, ruleNote, type AgentRule } from "./agent-rule-match";
 
-export interface AgentRule {
-  label?: string;
-  trigger: "keyword" | "asks_human";
-  keywords?: string; // comma-separated, for trigger=keyword
-  action: "handoff" | "note";
-  note?: string;
-}
-
-const HUMAN_NOUN = /\b(human|person|agent|representative|rep|teammate|staff|somebody|someone)\b/i;
-const WANT_VERB = /\b(speak|talk|chat|connect|transfer|escalate|reach|contact|call)\b/i;
-
-function matches(rule: AgentRule, text: string): boolean {
-  if (!text) return false;
-  if (rule.trigger === "asks_human") {
-    return (HUMAN_NOUN.test(text) && WANT_VERB.test(text)) || /\b(real|live)\s+(person|human|agent)\b/i.test(text);
-  }
-  const t = text.toLowerCase();
-  const kws = (rule.keywords || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return kws.some((k) => t.includes(k));
-}
+export type { AgentRule } from "./agent-rule-match";
 
 /**
  * Evaluates an agent's if-then rules against an inbound message. Keyword and
@@ -48,8 +30,8 @@ export async function evaluateAgentRules(opts: {
   const rules = (Array.isArray(agent.rules) ? agent.rules : []) as unknown as AgentRule[];
 
   for (const rule of rules) {
-    if (!matches(rule, messageText)) continue;
-    const note = rule.note?.trim() || `Auto-handoff (${rule.label || rule.trigger}) — customer message matched a rule.`;
+    if (!matchRule(rule, messageText)) continue;
+    const note = ruleNote(rule);
 
     if (rule.action === "handoff" && agent.handoffEnabled) {
       await withTenant(workspaceId, async (tx) => {
