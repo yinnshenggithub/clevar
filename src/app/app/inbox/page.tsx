@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ReplyForm } from "@/components/app/reply-form";
 import { AssignAgentSelect } from "@/components/app/assign-agent-select";
+import { ConversationStatusButton } from "@/components/app/conversation-status-button";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -127,11 +128,14 @@ export default async function InboxPage({
                     <div className="text-xs text-muted-foreground">{data.active.customerPhone}</div>
                   </div>
                 </div>
-                <AssignAgentSelect
-                  conversationId={data.active.id}
-                  agents={agents}
-                  current={data.active.assignedAgentId}
-                />
+                <div className="flex items-center gap-2">
+                  <ConversationStatusButton conversationId={data.active.id} status={data.active.status} />
+                  <AssignAgentSelect
+                    conversationId={data.active.id}
+                    agents={agents}
+                    current={data.active.assignedAgentId}
+                  />
+                </div>
               </div>
 
               <div className="flex-1 space-y-3 overflow-y-auto p-4" style={{ maxHeight: "calc(100vh - 20rem)" }}>

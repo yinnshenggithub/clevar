@@ -1,7 +1,11 @@
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { withTenant } from "@/lib/tenant";
+import { getCredits } from "@/lib/credits";
+import { PLAN_LABELS } from "@/lib/plans";
 import { PageHeader } from "@/components/app/page-header";
 import { InviteForm } from "@/components/app/invite-form";
+import { PlanForm } from "@/components/app/plan-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -10,8 +14,9 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const ctx = await requireAuth();
   const canManage = canManageWorkspace(ctx.role);
+  const isOwner = ctx.role === "OWNER";
 
-  const [members, invites] = await Promise.all([
+  const [members, invites, credits, ws, usage] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: { workspaceId: ctx.workspaceId },
       include: { user: { select: { fullName: true, email: true } } },
@@ -21,7 +26,16 @@ export default async function SettingsPage() {
       where: { workspaceId: ctx.workspaceId, acceptedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" },
     }),
+    getCredits(ctx.workspaceId),
+    prisma.workspace.findUnique({ where: { id: ctx.workspaceId }, select: { plan: true } }),
+    withTenant(ctx.workspaceId, (tx) =>
+      tx.aiUsage.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
+    ),
   ]);
+
+  const plan = ws?.plan ?? "FREE";
+  const resetAt = new Date(credits.periodStart.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const usedPct = credits.limit > 0 ? Math.min(100, Math.round((credits.used / credits.limit) * 100)) : 0;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -44,6 +58,50 @@ export default async function SettingsPage() {
             <span className="text-muted-foreground">Your role: </span>
             <Badge variant="secondary">{ctx.role}</Badge>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Plan &amp; usage</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Current plan:</span>
+            <Badge>{PLAN_LABELS[plan]}</Badge>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+              <span>AI credits this period</span>
+              <span>
+                {credits.used.toLocaleString()} / {credits.limit.toLocaleString()}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div className="h-full bg-primary" style={{ width: `${usedPct}%` }} />
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">Resets {resetAt.toLocaleDateString()}</div>
+          </div>
+          {isOwner ? (
+            <PlanForm current={plan} />
+          ) : (
+            <p className="text-xs text-muted-foreground">Only the owner can change the plan.</p>
+          )}
+          {usage.length > 0 && (
+            <div>
+              <h4 className="mb-1 font-medium">Recent AI usage</h4>
+              <ul className="divide-y divide-border text-xs text-muted-foreground">
+                {usage.map((u) => (
+                  <li key={u.id} className="flex items-center justify-between py-1.5">
+                    <span>{u.createdAt.toLocaleString()}</span>
+                    <span>
+                      {u.credits} credit{u.credits === 1 ? "" : "s"} · {u.tokensIn + u.tokensOut} tokens
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </CardContent>
       </Card>
 

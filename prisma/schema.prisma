@@ -32,6 +32,7 @@ model Workspace {
   id          String            @id @default(uuid()) @db.Uuid
   name        String
   slug        String            @unique
+  plan        WorkspacePlan     @default(FREE)
   createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz
   members     WorkspaceMember[]
@@ -382,6 +383,12 @@ enum WorkspaceRole {
   OWNER
   ADMIN
   MEMBER
+}
+
+enum WorkspacePlan {
+  FREE
+  PRO
+  BUSINESS
 }
 
 enum StageType {

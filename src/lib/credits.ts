@@ -7,6 +7,7 @@ export interface CreditStatus {
   used: number;
   limit: number;
   remaining: number;
+  periodStart: Date;
 }
 
 /** Reads (and lazily creates / monthly-resets) a workspace's credit balance. */
@@ -21,7 +22,12 @@ export async function getCredits(workspaceId: string): Promise<CreditStatus> {
         data: { used: 0, periodStart: new Date() },
       });
     }
-    return { used: c.used, limit: c.monthlyLimit, remaining: Math.max(0, c.monthlyLimit - c.used) };
+    return {
+      used: c.used,
+      limit: c.monthlyLimit,
+      remaining: Math.max(0, c.monthlyLimit - c.used),
+      periodStart: c.periodStart,
+    };
   });
 }
 
