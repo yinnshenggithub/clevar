@@ -14,8 +14,13 @@ export async function withTenant<T>(
   workspaceId: string,
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.workspace_id', ${workspaceId}, true)`;
-    return fn(tx);
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.workspace_id', ${workspaceId}, true)`;
+      return fn(tx);
+    },
+    // Generous bounds: serverless + a remote (Neon) Postgres adds round-trip
+    // latency, so the default 5s interactive-transaction timeout is too tight.
+    { maxWait: 10_000, timeout: 20_000 },
+  );
 }
