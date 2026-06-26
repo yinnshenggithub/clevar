@@ -2,10 +2,11 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateRecord, deleteRecord } from "@/lib/actions/objects";
-import { relationOptions } from "@/lib/object-data";
+import { relationOptions, getLinkedRecords } from "@/lib/object-data";
 import { relationTarget, selectChoices, recordTitle, type FieldDefLite } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
+import { LinkedRecordsCard } from "@/components/app/linked-records-card";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -39,14 +40,15 @@ export default async function EditRecordPage({
             : [],
       })),
     );
-    return { def, record, fields };
+    const linked = await getLinkedRecords(tx, slug, id);
+    return { def, record, fields, linked };
   });
   if (!data) notFound();
 
   const title = recordTitle(data.def.fields as FieldDefLite[], data.record.values as Record<string, unknown>);
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title={title}
         description={`Edit ${data.def.nameSingular.toLowerCase()}`}
@@ -62,6 +64,7 @@ export default async function EditRecordPage({
           />
         </CardContent>
       </Card>
+      <LinkedRecordsCard linked={data.linked} />
     </div>
   );
 }

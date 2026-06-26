@@ -45,10 +45,14 @@ export interface LinkedRecord {
   fieldLabel: string;
 }
 
-/** Custom records that link (via a relation field) to a CRM record — powers the mapping view. */
+/**
+ * Custom records that link (via a relation field) to a given target — a CRM
+ * record ("contact"/"company"/"deal") or another custom object (its slug).
+ * Powers the bidirectional "Linked records" mapping view.
+ */
 export async function getLinkedRecords(
   tx: Prisma.TransactionClient,
-  targetType: "contact" | "company" | "deal",
+  targetType: string,
   targetId: string,
 ): Promise<LinkedRecord[]> {
   const defs = await tx.objectDefinition.findMany({ include: { fields: true } });
