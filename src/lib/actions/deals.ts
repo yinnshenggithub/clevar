@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import type { StageType, DealStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { runWorkflows } from "@/lib/workflow";
 
 export interface FormState {
   error?: string;
@@ -53,7 +55,7 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
   const v = parsed.data;
 
   try {
-    await withTenant(ctx.workspaceId, async (tx) => {
+    const created = await withTenant(ctx.workspaceId, async (tx) => {
       const stage = await tx.stage.findFirst({
         where: { id: v.stageId, pipelineId: v.pipelineId },
       });
@@ -62,7 +64,7 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
         const company = await tx.company.findFirst({ where: { id: v.companyId, deletedAt: null } });
         if (!company) throw new Error("COMPANY_NOT_FOUND");
       }
-      await tx.deal.create({
+      return tx.deal.create({
         data: {
           workspaceId: ctx.workspaceId,
           title: v.title,
@@ -76,6 +78,11 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
         },
       });
     });
+    after(() =>
+      runWorkflows(ctx.workspaceId, "deal_created", { dealId: created.id, recordName: v.title }).catch((e) =>
+        console.error("deal_created workflow failed", e),
+      ),
+    );
   } catch (e) {
     if (e instanceof Error && e.message === "STAGE_NOT_FOUND") return { error: "Selected stage was not found." };
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") return { error: "Selected company was not found." };
@@ -135,14 +142,20 @@ export async function updateDeal(
 /** Moves a deal to a stage (used by the board); status follows the stage type. */
 export async function moveDeal(dealId: string, stageId: string): Promise<void> {
   const ctx = await requireAuth();
-  await withTenant(ctx.workspaceId, async (tx) => {
+  const stageName = await withTenant(ctx.workspaceId, async (tx) => {
     const stage = await tx.stage.findFirst({ where: { id: stageId } });
     if (!stage) throw new Error("STAGE_NOT_FOUND");
     await tx.deal.update({
       where: { id: dealId },
       data: { stageId, pipelineId: stage.pipelineId, status: statusForStage[stage.stageType] },
     });
+    return stage.name;
   });
+  after(() =>
+    runWorkflows(ctx.workspaceId, "deal_stage_changed", { dealId, stageName }).catch((e) =>
+      console.error("deal_stage_changed workflow failed", e),
+    ),
+  );
   revalidatePath("/app/deals");
 }
 

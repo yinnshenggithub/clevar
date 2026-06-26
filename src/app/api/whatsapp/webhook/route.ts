@@ -1,17 +1,12 @@
 import { after } from "next/server";
-import { generateText, type CoreMessage } from "ai";
 import { prisma } from "@/lib/prisma";
 import { withTenant } from "@/lib/tenant";
-import { resolveModel } from "@/lib/ai";
-import { getCredits, creditsForTokens, debitCredits } from "@/lib/credits";
-import { sendWhatsAppText, verifyWebhookSignature, waPhoneToE164 } from "@/lib/whatsapp";
+import { verifyWebhookSignature, waPhoneToE164 } from "@/lib/whatsapp";
+import { runWorkflows } from "@/lib/workflow";
+import { runAgentReply, hasLlmKey } from "@/lib/agent-reply";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-function hasLlmKey(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
-}
 
 // Meta webhook verification handshake.
 export async function GET(req: Request) {
@@ -24,6 +19,13 @@ export async function GET(req: Request) {
   }
   return new Response("Forbidden", { status: 403 });
 }
+
+type Channel = {
+  workspaceId: string;
+  phoneNumberId: string;
+  accessToken: string;
+  autoReplyAgentId: string | null;
+};
 
 export async function POST(req: Request) {
   const raw = await req.text();
@@ -55,12 +57,13 @@ export async function POST(req: Request) {
         if (msg.type !== "text") continue;
         const phone = waPhoneToE164(msg.from);
         const text: string = msg.text?.body ?? "";
-        const convoId = await persistInbound(channel.workspaceId, channel.autoReplyAgentId, phone, name, text, msg.id);
-
-        if (channel.autoReplyAgentId && hasLlmKey()) {
-          // Reply after the 200 so Meta isn't kept waiting on the model.
-          after(() => autoReply(channel, convoId, phone).catch((e) => console.error("autoReply failed", e)));
-        }
+        const convoId = await persistInbound(channel, phone, name, text, msg.id);
+        // Process automation + AI reply after acking Meta with a 200.
+        after(() =>
+          processMessageReceived(channel, convoId, phone, text).catch((e) =>
+            console.error("processMessageReceived failed", e),
+          ),
+        );
       }
     }
   }
@@ -69,17 +72,16 @@ export async function POST(req: Request) {
 }
 
 async function persistInbound(
-  workspaceId: string,
-  autoReplyAgentId: string | null,
+  channel: Channel,
   phone: string,
   name: string | null,
   text: string,
   waId: string | undefined,
 ): Promise<string> {
-  return withTenant(workspaceId, async (tx) => {
+  return withTenant(channel.workspaceId, async (tx) => {
     let contact = await tx.contact.findFirst({ where: { phone, deletedAt: null } });
     if (!contact) {
-      contact = await tx.contact.create({ data: { workspaceId, phone, firstName: name } });
+      contact = await tx.contact.create({ data: { workspaceId: channel.workspaceId, phone, firstName: name } });
     }
     let convo = await tx.conversation.findFirst({
       where: { customerPhone: phone },
@@ -87,11 +89,17 @@ async function persistInbound(
     });
     if (!convo) {
       convo = await tx.conversation.create({
-        data: { workspaceId, customerPhone: phone, customerName: name, contactId: contact.id, assignedAgentId: autoReplyAgentId },
+        data: {
+          workspaceId: channel.workspaceId,
+          customerPhone: phone,
+          customerName: name,
+          contactId: contact.id,
+          assignedAgentId: channel.autoReplyAgentId,
+        },
       });
     }
     await tx.message.create({
-      data: { workspaceId, conversationId: convo.id, direction: "INBOUND", body: text, waMessageId: waId },
+      data: { workspaceId: channel.workspaceId, conversationId: convo.id, direction: "INBOUND", body: text, waMessageId: waId },
     });
     await tx.conversation.update({
       where: { id: convo.id },
@@ -101,52 +109,31 @@ async function persistInbound(
   });
 }
 
-async function autoReply(
-  channel: { workspaceId: string; phoneNumberId: string; accessToken: string; autoReplyAgentId: string | null },
+async function processMessageReceived(
+  channel: Channel,
   conversationId: string,
   phone: string,
+  messageText: string,
 ): Promise<void> {
-  const agentId = channel.autoReplyAgentId;
-  if (!agentId) return;
-
-  const data = await withTenant(channel.workspaceId, async (tx) => {
-    const agent = await tx.aiAgent.findFirst({ where: { id: agentId, deletedAt: null } });
-    const msgs = await tx.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: "asc" },
-      take: 20,
-    });
-    return { agent, msgs };
-  });
-  if (!data.agent) return;
-
-  const credits = await getCredits(channel.workspaceId);
-  if (credits.remaining <= 0) return;
-
-  const coreMessages: CoreMessage[] = data.msgs.map((m) => ({
-    role: m.direction === "INBOUND" ? "user" : "assistant",
-    content: m.body,
-  }));
-
-  const { text, usage } = await generateText({
-    model: resolveModel(data.agent.model),
-    system: data.agent.instructions?.trim() || `You are ${data.agent.name}, a helpful WhatsApp assistant. Be concise.`,
-    messages: coreMessages,
-  });
-
-  const waId = await sendWhatsAppText(channel.phoneNumberId, channel.accessToken, phone, text);
-
-  await withTenant(channel.workspaceId, async (tx) => {
-    await tx.message.create({
-      data: { workspaceId: channel.workspaceId, conversationId, direction: "OUTBOUND", body: text, waMessageId: waId },
-    });
-    await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
-  });
-
-  await debitCredits(channel.workspaceId, creditsForTokens(usage?.totalTokens ?? 0), {
-    agentId,
+  const { repliedExternally } = await runWorkflows(channel.workspaceId, "message_received", {
     conversationId,
-    tokensIn: usage?.promptTokens ?? 0,
-    tokensOut: usage?.completionTokens ?? 0,
+    messageText,
+    customerPhone: phone,
+    channel: { phoneNumberId: channel.phoneNumberId, accessToken: channel.accessToken },
   });
+  if (repliedExternally) return;
+
+  const convo = await withTenant(channel.workspaceId, (tx) =>
+    tx.conversation.findFirst({ where: { id: conversationId } }),
+  );
+  if (convo?.assignedAgentId && hasLlmKey()) {
+    await runAgentReply({
+      workspaceId: channel.workspaceId,
+      phoneNumberId: channel.phoneNumberId,
+      accessToken: channel.accessToken,
+      conversationId,
+      phone,
+      agentId: convo.assignedAgentId,
+    });
+  }
 }

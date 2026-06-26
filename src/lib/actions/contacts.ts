@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { runWorkflows } from "@/lib/workflow";
 import { normalizePhone, InvalidPhoneError } from "@/lib/phone";
 
 export interface FormState {
@@ -60,11 +62,11 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
   }
 
   try {
-    await withTenant(ctx.workspaceId, async (tx) => {
+    const created = await withTenant(ctx.workspaceId, async (tx) => {
       if (v.companyId && !(await assertCompanyInWorkspace(tx, v.companyId))) {
         throw new Error("COMPANY_NOT_FOUND");
       }
-      await tx.contact.create({
+      return tx.contact.create({
         data: {
           workspaceId: ctx.workspaceId,
           firstName: v.firstName || null,
@@ -76,6 +78,12 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
         },
       });
     });
+    after(() =>
+      runWorkflows(ctx.workspaceId, "contact_created", {
+        contactId: created.id,
+        recordName: [v.firstName, v.lastName].filter(Boolean).join(" ") || v.email || "",
+      }).catch((e) => console.error("contact_created workflow failed", e)),
+    );
   } catch (e) {
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") {
       return { error: "Selected company was not found." };
