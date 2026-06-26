@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/app/page-header";
 import { InviteForm } from "@/components/app/invite-form";
 import { PlanForm } from "@/components/app/plan-form";
 import { ApiKeyManager } from "@/components/app/api-key-manager";
+import { WebhookManager } from "@/components/app/webhook-manager";
+import { WEBHOOK_EVENTS } from "@/lib/webhooks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -17,7 +19,7 @@ export default async function SettingsPage() {
   const canManage = canManageWorkspace(ctx.role);
   const isOwner = ctx.role === "OWNER";
 
-  const [members, invites, credits, ws, usage, apiKeys] = await Promise.all([
+  const [members, invites, credits, ws, usage, apiKeys, webhooks] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: { workspaceId: ctx.workspaceId },
       include: { user: { select: { fullName: true, email: true } } },
@@ -33,6 +35,7 @@ export default async function SettingsPage() {
       tx.aiUsage.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     ),
     prisma.apiKey.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: { createdAt: "desc" } }),
+    prisma.webhook.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: { createdAt: "desc" } }),
   ]);
 
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
@@ -168,6 +171,17 @@ export default async function SettingsPage() {
                 revokedAt: k.revokedAt ? k.revokedAt.toISOString() : null,
               }))}
             />
+          </CardContent>
+        </Card>
+      )}
+
+      {canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Webhooks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <WebhookManager events={WEBHOOK_EVENTS} hooks={webhooks.map((h) => ({ id: h.id, url: h.url, events: h.events }))} />
           </CardContent>
         </Card>
       )}

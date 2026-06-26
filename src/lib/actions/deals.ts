@@ -8,6 +8,7 @@ import type { StageType, DealStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { logEventTx } from "@/lib/activity";
+import { dispatchWebhooks } from "@/lib/webhooks";
 import { runWorkflows } from "@/lib/workflow";
 
 export interface FormState {
@@ -104,6 +105,13 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
         console.error("deal_created workflow failed", e),
       ),
     );
+    after(() =>
+      dispatchWebhooks(ctx.workspaceId, "deal.created", {
+        id: created.id,
+        title: v.title,
+        amount: parseAmount(v.amount),
+      }),
+    );
   } catch (e) {
     if (e instanceof Error && e.message === "STAGE_NOT_FOUND") return { error: "Selected stage was not found." };
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") return { error: "Selected company was not found." };
@@ -180,6 +188,7 @@ export async function moveDeal(dealId: string, stageId: string): Promise<void> {
       console.error("deal_stage_changed workflow failed", e),
     ),
   );
+  after(() => dispatchWebhooks(ctx.workspaceId, "deal.stage_changed", { id: dealId, stageName }));
   revalidatePath("/app/deals");
 }
 

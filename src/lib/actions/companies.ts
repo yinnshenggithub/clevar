@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { logEventTx } from "@/lib/activity";
+import { dispatchWebhooks } from "@/lib/webhooks";
 
 export interface FormState {
   error?: string;
@@ -32,7 +34,7 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
   const v = parsed.data;
 
   try {
-    await withTenant(ctx.workspaceId, async (tx) => {
+    const created = await withTenant(ctx.workspaceId, async (tx) => {
       const c = await tx.company.create({
         data: {
           workspaceId: ctx.workspaceId,
@@ -44,7 +46,9 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
         },
       });
       await logEventTx(tx, ctx.workspaceId, "COMPANY", c.id, "created", "Company created", ctx.userId);
+      return c;
     });
+    after(() => dispatchWebhooks(ctx.workspaceId, "company.created", { id: created.id, name: v.name }));
   } catch (e) {
     console.error("createCompany failed", e);
     return { error: "Could not save the company." };

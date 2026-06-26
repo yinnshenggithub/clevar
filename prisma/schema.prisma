@@ -53,6 +53,7 @@ model Workspace {
   whatsappChannels WhatsAppChannel[]
   webWidgets    WebWidget[]
   apiKeys       ApiKey[]
+  webhooks      Webhook[]
   conversations Conversation[]
   messages      Message[]
   labels        Label[]
@@ -411,6 +412,22 @@ model ApiKey {
 
   @@index([workspaceId])
   @@map("api_keys")
+}
+
+// Outbound webhooks (control-plane). Dispatched from server actions that already
+// hold the workspace context; payloads are HMAC-signed with the per-hook secret.
+model Webhook {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  url         String
+  secret      String
+  events      String[]
+  enabled     Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("webhooks")
 }
 
 model Conversation {

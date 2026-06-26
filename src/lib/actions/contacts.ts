@@ -7,6 +7,7 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { logEventTx } from "@/lib/activity";
+import { dispatchWebhooks } from "@/lib/webhooks";
 import { runWorkflows } from "@/lib/workflow";
 import { normalizePhone, InvalidPhoneError } from "@/lib/phone";
 
@@ -105,6 +106,14 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
         contactId: created.id,
         recordName: [v.firstName, v.lastName].filter(Boolean).join(" ") || v.email || "",
       }).catch((e) => console.error("contact_created workflow failed", e)),
+    );
+    after(() =>
+      dispatchWebhooks(ctx.workspaceId, "contact.created", {
+        id: created.id,
+        firstName: v.firstName || null,
+        lastName: v.lastName || null,
+        email: v.email || null,
+      }),
     );
   } catch (e) {
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") {
