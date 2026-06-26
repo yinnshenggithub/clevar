@@ -1,6 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { logoutAction } from "@/lib/actions/auth";
 import { Sidebar } from "@/components/app/sidebar";
+import { MobileNav } from "@/components/app/mobile-nav";
 import { Button } from "@/components/ui/button";
 import { initials } from "@/lib/utils";
 import { LogOut } from "lucide-react";
@@ -12,9 +13,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen">
       <Sidebar workspaceName={ctx.workspace.name} />
       <div className="flex flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border bg-card px-6">
-          <div className="text-sm text-muted-foreground">
-            {ctx.workspace.name} · {ctx.role.toLowerCase()}
+        <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 sm:px-6">
+          <div className="flex items-center gap-2">
+            <MobileNav workspaceName={ctx.workspace.name} />
+            <div className="text-sm text-muted-foreground">
+              {ctx.workspace.name} · {ctx.role.toLowerCase()}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-sm">

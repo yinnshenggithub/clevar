@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Users } from "lucide-react";
+import { Plus, Users, Upload, Download } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { PageHeader } from "@/components/app/page-header";
@@ -26,11 +26,23 @@ export default async function ContactsPage() {
         title="Contacts"
         description="Everyone your team is in touch with."
         action={
-          <Link href="/app/contacts/new">
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" /> New contact
-            </Button>
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <a href="/api/export?object=contacts">
+              <Button variant="outline" className="gap-2">
+                <Download className="h-4 w-4" /> Export
+              </Button>
+            </a>
+            <Link href="/app/import/contacts">
+              <Button variant="outline" className="gap-2">
+                <Upload className="h-4 w-4" /> Import
+              </Button>
+            </Link>
+            <Link href="/app/contacts/new">
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> New contact
+              </Button>
+            </Link>
+          </div>
         }
       />
 

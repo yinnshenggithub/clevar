@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Building2 } from "lucide-react";
+import { Plus, Building2, Upload, Download } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { PageHeader } from "@/components/app/page-header";
@@ -25,11 +25,23 @@ export default async function CompaniesPage() {
         title="Companies"
         description="The accounts in your pipeline."
         action={
-          <Link href="/app/companies/new">
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" /> New company
-            </Button>
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <a href="/api/export?object=companies">
+              <Button variant="outline" className="gap-2">
+                <Download className="h-4 w-4" /> Export
+              </Button>
+            </a>
+            <Link href="/app/import/companies">
+              <Button variant="outline" className="gap-2">
+                <Upload className="h-4 w-4" /> Import
+              </Button>
+            </Link>
+            <Link href="/app/companies/new">
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> New company
+              </Button>
+            </Link>
+          </div>
         }
       />
 
