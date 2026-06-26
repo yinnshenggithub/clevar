@@ -30,13 +30,16 @@ To prevent the cross-section drift that a code-first spec cannot tolerate, the f
 | User | `users` | `User` | `User` | Global identity |
 | Invite | `invitations` | `Invitation` | (no type; REST/mutation only) | Global token table, RLS-exempt by design (see §3) |
 | Custom-field metadata | `field_definitions` | `FieldDefinition` | `FieldDefinition` | **RLS-protected** tenant table |
-| Object kinds | enum `object_type` | `ObjectType` | `ObjectType { COMPANY CONTACT DEAL }` | One enum reused for fields, views, note targets |
+| Bulk import/export job | `data_jobs` | `DataJob` | `DataJob` | **RLS-protected** tenant table; one row per CSV import or export run |
+| Object kinds | enum `object_type` | `ObjectType` | `ObjectType { COMPANY CONTACT DEAL }` | One enum reused for fields, views, note targets, data jobs |
 | App package (HTTP) | — | — | — | `apps/api` (`@clevar/api`) |
 | App package (jobs) | — | — | — | `apps/worker` (`@clevar/worker`) |
 | App package (SPA) | — | — | — | `apps/web` (`@clevar/web`) |
 | DB package | — | — | — | `packages/db` (`@clevar/db`) |
 
-**Enum casing rule:** GraphQL enums are `UPPER_CASE` on the wire; the service layer maps them 1:1 to `lower_case` PostgreSQL enums (e.g. GraphQL `OWNER` ↔ DB `owner`). This rule applies to every enum (`WorkspaceRole`, `DealStatus`, `StageType`, `ObjectType`, `FieldDataType`, `ViewKind`, `MemberStatus`, `NoteTargetType`).
+**Enum casing rule:** GraphQL enums are `UPPER_CASE` on the wire; the service layer maps them 1:1 to `lower_case` PostgreSQL enums (e.g. GraphQL `OWNER` ↔ DB `owner`). This rule applies to every enum (`WorkspaceRole`, `DealStatus`, `StageType`, `ObjectType`, `FieldDataType`, `ViewKind`, `MemberStatus`, `NoteParentType`, `DataJobKind`, `DataJobStatus`).
+
+**Phone rule:** Contact `phone` (and any `phone`-typed custom field) is stored as a normalized **E.164** string including the country code (e.g. `+60123456789`). The API accepts either a complete E.164 string in `phone`, or a national number in `phone` plus a `phoneRegion` (ISO 3166-1 alpha-2); the service normalizes/validates with `libphonenumber-js` and rejects un-parseable numbers with a typed `INVALID_PHONE` error. (`phone`/`phoneRegion` is the one canonical vocabulary, matching the GraphQL SDL in §5.) Stored once, canonical; display formatting is a client concern.
 
 **Money rule:** Deal `amount` is `numeric(18,2)` with a per-deal `currency char(3)` (ISO 4217). Never floats, never integer-minor-units. Exposed in GraphQL as a `Decimal` scalar (string-encoded).
 
@@ -102,7 +105,7 @@ This Foundation release delivers exactly one product surface: a **CRM core** —
 - **N2 — No AI agents, no credit/usage metering.**
 - **N3 — No workflow / automation builder.**
 - **N4 — No billing, plans, or payments.**
-- **N5 — No third-party CRM data sync / import connectors.** (CSV import may be a thin follow-on but is not specified here.)
+- **N5 — No third-party CRM data sync / live import connectors.** CSV import/export **is** in scope (§1.4, §4.4.8, §5.9, AC13/AC14); only live/recurring connectors and non-CSV formats are deferred.
 - **N6 — No marketplace, no public app/plugin platform, no SSO/SAML/SCIM.** (Email/password only.)
 - **N7 — No reporting/analytics warehouse, dashboards, BI, scheduled exports, or forecasting models.** Saved views provide filtered lists, not aggregate reporting.
 - **N8 — No full-text/cross-object search infrastructure** (no tsvector/trigram index tier, no maintained search index). The ⌘K palette is a bounded `ILIKE` name lookup (§6.1); richer search is a later spec.
@@ -120,10 +123,12 @@ This table is the authoritative scope boundary. Anything not "In scope" is out o
 | **CRM objects** | `contacts`, `companies`, `deals`; deal↔pipeline/stage; contact↔company; notes attached to any object; relations between objects | Activities/tasks/calendar, products/line-items/quotes, files/attachments store |
 | **Pipelines** | Multiple pipelines per workspace; ordered stages; deal stage transitions; stage metadata (name, position, probability 0–100, type ∈ `open`/`won`/`lost`, color) | Automated stage progression, SLA timers, forecasting models |
 | **Saved views** | Per-object saved views: column selection, sort, filters, view kind (table/kanban), per-member or shared scope | Cross-object dashboards, charts, scheduled exports |
-| **Custom fields** | JSONB column per core object + `field_definitions` metadata; types `text, number, boolean, date, single_select, multi_select, url, email`; validation against definitions | Per-tenant DDL, dynamic physical tables, computed/formula fields, rollups, custom-field uniqueness, `datetime`/`currency` field types |
-| **API** | Code-first GraphQL (Apollo Server on NestJS); queries/mutations for all in-scope objects; cursor pagination; optimistic-concurrency; auth + RLS-bound resolver context | Public REST API, webhooks, GraphQL subscriptions |
-| **Async** | BullMQ + Redis; jobs for transactional email (verify/reset/invite) and soft-delete purge | Workflow execution, AI jobs, billing/metering jobs, imports/exports, view recomputation, search indexing |
-| **Frontend** | React + Vite SPA; Apollo Client + GraphQL codegen; Tailwind + shadcn/ui (Radix); TanStack Table; auth flows; CRUD + saved-view UI | Inbox UI, automation canvas, AI chat UI, billing UI |
+| **Custom fields** | JSONB column per core object + `field_definitions` metadata; types `text, number, boolean, date, single_select, multi_select, url, email, phone`; validation against definitions | Per-tenant DDL, dynamic physical tables, computed/formula fields, rollups, custom-field uniqueness, `datetime`/`currency` field types |
+| **Data import/export** | CSV **import** for `contacts`, `companies`, `deals` (header→field column mapping incl. custom fields, per-row validation, natural-key dedupe upsert, downloadable row-level error report); a downloadable **CSV template** per object (headers = importable core + active custom fields); CSV **export** of records honoring the current view's filters | Non-CSV formats (XLSX/JSON), scheduled/recurring imports, merge-review UI for duplicates, a general file/attachment store |
+| **API** | Code-first GraphQL (Apollo Server on NestJS); queries/mutations for all in-scope objects; cursor pagination; optimistic-concurrency; auth + RLS-bound resolver context; REST endpoints for `/auth/*` and CSV file transfer (`/imports`, `/exports`) | Public REST API for product data, webhooks, GraphQL subscriptions |
+| **Async** | BullMQ + Redis; jobs for transactional email (verify/reset/invite), soft-delete purge, and **CSV import/export processing** | Workflow execution, AI jobs, billing/metering jobs, view recomputation, search indexing |
+| **Object storage** | S3-compatible bucket for CSV artifacts only (uploaded import files, generated export files, error reports); `workspace_id`-prefixed keys served via authenticated, RLS-scoped streaming (optional short-lived presigned URLs for large exports) | General attachment/file store on CRM records; image/avatar uploads |
+| **Frontend** | React + Vite SPA; Apollo Client + GraphQL codegen; Tailwind + shadcn/ui (Radix); TanStack Table; auth flows; CRUD + saved-view UI; **import wizard + export/template actions** | Inbox UI, automation canvas, AI chat UI, billing UI |
 
 ### 1.5 Architecture at a Glance (scope-setting only; detailed in §2)
 
@@ -144,7 +149,8 @@ This table is the authoritative scope boundary. Anything not "In scope" is out o
 - **Database:** PostgreSQL 16. Every tenant-scoped table carries `workspace_id uuid NOT NULL` and is protected by an RLS policy. Each request opens one transaction and issues `SET LOCAL app.workspace_id`; the app connects as `clevar_app` (`LOGIN NOBYPASSRLS`), so no code path can skip policies.
 - **Custom fields:** a `custom_fields jsonb NOT NULL DEFAULT '{}'` column per core object, governed by rows in `field_definitions`. No per-tenant DDL.
 - **Auth tokens:** access JWT (15m) carries `{ sub, ws, role, jti }`; refresh token is opaque, rotating, stored hashed (SHA-256), delivered as an httpOnly, Secure, SameSite cookie. Passwords hashed with argon2id.
-- **Async:** BullMQ on Redis; workers run in `apps/worker`, sharing types and the Prisma client but scaling independently.
+- **Async:** BullMQ on Redis; workers run in `apps/worker`, sharing types and the Prisma client but scaling independently. Foundation queues: `email.send`, `record.purge`, `data.import`, `data.export`.
+- **Object storage:** an S3-compatible bucket holds CSV artifacts only (import uploads, generated exports, error reports), addressed by `workspace_id`-prefixed keys and served to clients by authenticated, RLS-scoped streaming through the API (large exports may optionally use a short-lived presigned URL); local dev uses MinIO.
 
 ### 1.6 Per-tenant resource ceilings
 
@@ -158,6 +164,9 @@ To bound index/scan cost, abuse, and to give the later billing layer a tightenin
 | `custom_fields` JSONB byte size per row | 64 KiB |
 | Saved views per (object, member) | 100 |
 | Outstanding invitations per workspace | 200 |
+| CSV import file size | 20 MiB (`IMPORT_MAX_FILE_BYTES`) |
+| Rows per CSV import | 50,000 (`IMPORT_MAX_ROWS`) |
+| Concurrent in-flight import/export jobs per workspace | 3 |
 
 ### 1.7 Success Criteria & Acceptance
 
@@ -165,12 +174,14 @@ To bound index/scan cost, abuse, and to give the later billing layer a tightenin
 
 - **AC1** A new user can sign up, **verify email**, create a workspace, and land in a CRM with one seeded default pipeline (§4.3).
 - **AC2** An owner/admin can invite a teammate by email; the invitee accepts (single-use, expiring token) and joins as a `member`; roles gate the documented operations.
-- **AC3** A member can create, read, update, soft-delete, **and restore** contacts, companies, and deals, including relations (contact→company, deal→company/contact, deal→pipeline/stage).
+- **AC3** A member can create, read, update, soft-delete, **and restore** contacts, companies, and deals, including relations (contact→company, deal→company/contact, deal→pipeline/stage). A contact phone entered with a country code is stored normalized to E.164; an un-parseable number is rejected with `INVALID_PHONE`.
 - **AC4** An admin can create a pipeline with ordered stages; a member can move a deal across stages; stage `won`/`lost` types behave as specified.
 - **AC5** Notes can be attached to any core object and listed in reverse-chronological order.
 - **AC6** A member can define a custom field (e.g. a `single_select` "Lead source") and set/filter on its value; data lives in `custom_fields` JSONB validated against `field_definitions`.
 - **AC7** Saved views persist column choice, sort, and filters; switching views re-renders the table; shared vs personal scope is honored.
 - **AC8** GraphQL collections paginate with stable cursors and return only the caller's workspace data.
+- **AC13 (CSV import)** A member downloads the contacts CSV template, fills rows (including a custom field and an E.164 phone), uploads it; an async job validates and upserts valid rows (dedupe on the natural key), records a row-level error report for invalid rows, and the UI shows progress and a downloadable error CSV. All imported rows belong only to the active workspace.
+- **AC14 (CSV export)** A member exports contacts honoring the active view's filters; the generated CSV (core + active custom-field columns) is streamed through the authenticated export endpoint after an RLS-scoped lookup and contains only the active workspace's rows.
 
 **Isolation & security (hard gates)**
 
@@ -243,7 +254,8 @@ CLEVAR's Foundation is one unified TypeScript monorepo compiling into three depl
 |---|---|---|---|---|
 | Web SPA | `apps/web` | n/a (CDN) | CDN edge | Renders CRM UI; talks to `/graphql` + `/auth/*`. Holds access token in memory only. |
 | API server | `apps/api` | Yes | Pod replicas behind LB | GraphQL gateway, auth, RLS-scoped reads/writes |
-| Worker | `apps/worker` | Yes | Pod replicas / queue concurrency | Transactional emails, soft-delete purge |
+| Worker | `apps/worker` | Yes | Pod replicas / queue concurrency | Transactional emails, soft-delete purge, CSV import/export processing |
+| Object storage | S3-compatible (managed/MinIO) | No (state) | Bucket | CSV import uploads, generated exports, error reports; accessed only via authenticated, RLS-scoped API streaming (optional short-lived presigned URL for large exports) |
 | PostgreSQL 16 | managed primary | No (state) | Vertical (replicas/partitioning later) | System of record; RLS enforces isolation |
 | Redis 7 (queues) | managed | No (state) | Cluster/instance | BullMQ transport, delayed jobs, dead-letter |
 | Redis 7 (cache) | managed | No (state) | Cluster | Refresh-token revocation list, field-definition cache, rate-limit counters |
@@ -366,7 +378,7 @@ Any replica serves any request; the LB needs no sticky sessions. The data tier i
 
 Domain logic is grouped into NestJS feature modules under `apps/api/src/modules/`: Foundation ships `auth`, `workspace`, `crm` (contacts/companies/deals/pipelines/stages/notes), and `views`. Later specs add sibling modules (`inbox`, `agents`, `workflows`) depending on the same `packages/shared` (tenant context, `withTenant`) and Prisma client. No core module imports a later module; later modules depend inward only. The RLS pattern, the `withTenant` wrapper, and the `workspace_id` convention are reused verbatim by any new tenant-scoped table, so a future `conversations` or `runs` table gets isolation for free.
 
-BullMQ is wired in Foundation for its own jobs (emails, soft-delete purge), so queue infrastructure, dead-letter handling, retry/backoff, and worker bootstrap already exist; later modules add new named queues to the same Redis and worker Deployment — a config change, not an architectural one. The code-first GraphQL schema is composed per module, so later specs add types without touching CRM resolvers.
+BullMQ is wired in Foundation for its own jobs (emails, soft-delete purge, CSV import/export), so queue infrastructure, dead-letter handling, retry/backoff, and worker bootstrap already exist; later modules add new named queues to the same Redis and worker Deployment — a config change, not an architectural one. The code-first GraphQL schema is composed per module, so later specs add types without touching CRM resolvers.
 
 ---
 
@@ -577,7 +589,7 @@ BEGIN
   NEW.workspace_id := current_setting('app.workspace_id')::uuid;  -- ignores any client value
   RETURN NEW;
 END $$ LANGUAGE plpgsql;
--- attached BEFORE INSERT to companies, contacts, pipelines, stages, deals, notes, saved_views, field_definitions
+-- attached BEFORE INSERT to companies, contacts, pipelines, stages, deals, notes, saved_views, field_definitions, data_jobs
 ```
 
 `field_definitions` IS a tenant-plane RLS table. Control-plane tables (`users`, `workspaces`, `workspace_members`, `refresh_tokens`, `invitations`, `email_verification_tokens`, `password_reset_tokens`) are not RLS and are reached only via the `adminClient` repository.
@@ -662,7 +674,7 @@ Metadata-lite registry driving `custom_fields`. Carries `workspace_id` and is un
 | `object_type` | `object_type` enum NOT NULL | `company` \| `contact` \| `deal` |
 | `key` | `text` NOT NULL | JSON key; `^[a-z][a-z0-9_]*$` |
 | `label` | `text` NOT NULL | |
-| `data_type` | `field_data_type` enum NOT NULL | `text` \| `number` \| `boolean` \| `date` \| `single_select` \| `multi_select` \| `url` \| `email` |
+| `data_type` | `field_data_type` enum NOT NULL | `text` \| `number` \| `boolean` \| `date` \| `single_select` \| `multi_select` \| `url` \| `email` \| `phone` |
 | `options` | `jsonb` NOT NULL DEFAULT `'[]'` | `[{value,label,color}]` for select types |
 | `is_required` | `boolean` NOT NULL DEFAULT false | |
 | `position` | `int` NOT NULL DEFAULT 0 | |
@@ -689,7 +701,7 @@ Indexes: `INDEX (workspace_id, created_at, id)` (default cursor sort); `INDEX (w
 
 #### 4.4.2 `contacts`
 
-Columns: `id`, `workspace_id`, `company_id uuid NULL` (composite FK → `companies(workspace_id, id)` ON DELETE SET NULL), `first_name text NULL`, `last_name text NULL`, `email citext NULL`, `phone text NULL` (E.164), `job_title text NULL`, `owner_id` (composite FK → `workspace_members(workspace_id, user_id)`), `custom_fields jsonb`, `version`, audit + `deleted_at`.
+Columns: `id`, `workspace_id`, `company_id uuid NULL` (composite FK → `companies(workspace_id, id)` ON DELETE SET NULL), `first_name text NULL`, `last_name text NULL`, `email citext NULL`, `phone text NULL` (**normalized E.164 incl. country code**, e.g. `+60123456789`; written only after `libphonenumber-js` validation — see the Phone rule in the naming registry), `job_title text NULL`, `owner_id` (composite FK → `workspace_members(workspace_id, user_id)`), `custom_fields jsonb`, `version`, audit + `deleted_at`.
 
 Indexes: `INDEX (workspace_id, created_at, id)`; `INDEX (workspace_id, last_name, first_name)`; partial `UNIQUE (workspace_id, email) WHERE deleted_at IS NULL AND email IS NOT NULL`; `INDEX (workspace_id, company_id)`; `INDEX (workspace_id, owner_id)`; `GIN (custom_fields jsonb_path_ops)`.
 
@@ -727,6 +739,14 @@ Columns: `id`, `workspace_id`, `object_type object_type NOT NULL`, `name text NO
 
 Indexes: `INDEX (workspace_id, object_type, owner_id)`; `INDEX (workspace_id, object_type) WHERE is_shared`.
 
+#### 4.4.8 `data_jobs` (CSV import/export)
+
+One row per CSV import or export run. RLS enabled+forced like every tenant table; the worker processes it inside the same `withTenant` transaction (the job payload carries `workspaceId`). The CSV bytes never live in Postgres — only object-storage keys do.
+
+Columns: `id`, `workspace_id`, `kind data_job_kind NOT NULL` (`import`/`export`), `object_type object_type NOT NULL` (`company`/`contact`/`deal`), `status data_job_status NOT NULL DEFAULT 'pending'` (`pending`→`validating`→`processing`→`completed`/`failed`), `input_storage_key text NULL` (import: the uploaded CSV), `output_storage_key text NULL` (export: the generated CSV), `error_storage_key text NULL` (import: the row-level error report CSV), `original_filename text NULL`, `column_mapping jsonb NOT NULL DEFAULT '{}'` (import: header→field key map, incl. `custom_fields.<key>`), `export_filter jsonb NOT NULL DEFAULT '{}'` (export: the snapshot of view filter/sort applied), `total_rows int NULL`, `processed_rows int NOT NULL DEFAULT 0`, `success_count int NOT NULL DEFAULT 0`, `error_count int NOT NULL DEFAULT 0`, `created_by uuid NULL` (FK → `users(id)` ON DELETE SET NULL), `started_at timestamptz NULL`, `finished_at timestamptz NULL`, `version`, audit. Hard-deleted by a retention sweep (no `deleted_at`).
+
+Indexes: `INDEX (workspace_id, created_at DESC, id)` (job history list); `INDEX (workspace_id, kind, object_type, status)`. Object-storage keys are always `workspace_id`-prefixed (`ws/<workspace_id>/imports/<job_id>.csv`) so a leaked/guessed key still cannot cross tenants, and clients never receive a storage URL: downloads are streamed through the authenticated API after an RLS-scoped `data_jobs` lookup (large exports may optionally use a short-lived presigned URL minted only after that same lookup).
+
 ### 4.5 Enums
 
 | Enum | Values (DB lower_case ↔ GraphQL UPPER_CASE) |
@@ -734,9 +754,11 @@ Indexes: `INDEX (workspace_id, object_type, owner_id)`; `INDEX (workspace_id, ob
 | `workspace_role` | `owner`, `admin`, `member` |
 | `member_status` | `active`, `invited`, `suspended` |
 | `object_type` | `company`, `contact`, `deal` |
-| `field_data_type` | `text`, `number`, `boolean`, `date`, `single_select`, `multi_select`, `url`, `email` |
+| `field_data_type` | `text`, `number`, `boolean`, `date`, `single_select`, `multi_select`, `url`, `email`, `phone` |
 | `stage_type` | `open`, `won`, `lost` |
 | `deal_status` | `open`, `won`, `lost` |
+| `data_job_kind` | `import`, `export` |
+| `data_job_status` | `pending`, `validating`, `processing`, `completed`, `failed` |
 | `note_parent_type` | `company`, `contact`, `deal` |
 | `view_kind` | `table`, `kanban` |
 
@@ -781,6 +803,7 @@ model Workspace {
   contacts  Contact[]
   pipelines Pipeline[]
   deals     Deal[]
+  dataJobs  DataJob[]
   @@map("workspaces")
 }
 
@@ -992,7 +1015,38 @@ enum StageType     { open won lost                  @@map("stage_type") }
 enum DealStatus    { open won lost                  @@map("deal_status") }
 enum NoteParentType{ company contact deal           @@map("note_parent_type") }
 enum ViewKind      { table kanban                   @@map("view_kind") }
-enum FieldDataType { text number boolean date single_select multi_select url email @@map("field_data_type") }
+enum FieldDataType { text number boolean date single_select multi_select url email phone @@map("field_data_type") }
+
+model DataJob {
+  id               String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  workspaceId      String        @map("workspace_id") @db.Uuid
+  kind             DataJobKind
+  objectType       ObjectType    @map("object_type")
+  status           DataJobStatus @default(pending)
+  inputStorageKey  String?       @map("input_storage_key")
+  outputStorageKey String?       @map("output_storage_key")
+  errorStorageKey  String?       @map("error_storage_key")
+  originalFilename String?       @map("original_filename")
+  columnMapping    Json          @default("{}") @map("column_mapping")
+  exportFilter     Json          @default("{}") @map("export_filter")
+  totalRows        Int?          @map("total_rows")
+  processedRows    Int           @default(0) @map("processed_rows")
+  successCount     Int           @default(0) @map("success_count")
+  errorCount       Int           @default(0) @map("error_count")
+  createdBy        String?       @map("created_by") @db.Uuid
+  startedAt        DateTime?     @map("started_at") @db.Timestamptz
+  finishedAt       DateTime?     @map("finished_at") @db.Timestamptz
+  version          Int           @default(0)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime      @default(now()) @map("updated_at") @db.Timestamptz
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@index([workspaceId, createdAt(sort: Desc), id])
+  @@index([workspaceId, kind, objectType, status])
+  @@map("data_jobs")
+}
+
+enum DataJobKind   { import export                  @@map("data_job_kind") }
+enum DataJobStatus { pending validating processing completed failed @@map("data_job_status") }
 ```
 
 > Prisma cannot express RLS, partial/composite/GIN/deferrable indexes, the `set_updated_at()`/`version` and `set_workspace_id()` triggers, the note-integrity trigger, the `uuid_generate_v7()` function, or `NOBYPASSRLS` roles. These are hand-written SQL appended to the relevant `migration.sql` and applied/tracked by `prisma migrate`.
@@ -1063,10 +1117,12 @@ enum WorkspaceRole { OWNER ADMIN MEMBER }
 enum MemberStatus  { ACTIVE INVITED SUSPENDED }
 enum DealStatus    { OPEN WON LOST }
 enum StageType     { OPEN WON LOST }
-enum ObjectType    { COMPANY CONTACT DEAL }          # reused for fields, views, note targets
-enum FieldDataType { TEXT NUMBER BOOLEAN DATE SINGLE_SELECT MULTI_SELECT URL EMAIL }
+enum ObjectType    { COMPANY CONTACT DEAL }          # reused for fields, views, note targets, data jobs
+enum FieldDataType { TEXT NUMBER BOOLEAN DATE SINGLE_SELECT MULTI_SELECT URL EMAIL PHONE }
 enum ViewKind      { TABLE KANBAN }
 enum SortDirection { ASC DESC }
+enum DataJobKind   { IMPORT EXPORT }
+enum DataJobStatus { PENDING VALIDATING PROCESSING COMPLETED FAILED }
 
 type Workspace {
   id: ID!  name: String!  slug: String!
@@ -1119,6 +1175,16 @@ type SavedView {
   filters: JSON sort: JSON visibleColumns: [String!]!
   isShared: Boolean! ownerId: ID! position: Int! createdAt: DateTime!
 }
+type DataJob {
+  id: ID! kind: DataJobKind! objectType: ObjectType! status: DataJobStatus!
+  originalFilename: String
+  totalRows: Int processedRows: Int! successCount: Int! errorCount: Int!
+  # relative authenticated API path (requires the access token), not a storage URL; null unless the job
+  # produced the artifact and the caller may read it. Points at GET /exports/:jobId/file.csv (export
+  # COMPLETED) or GET /imports/:jobId/errors.csv (import with errorCount>0).
+  downloadUrl: String
+  createdBy: ID startedAt: DateTime finishedAt: DateTime createdAt: DateTime! updatedAt: DateTime!
+}
 ```
 
 #### 5.1.3 Queries
@@ -1145,6 +1211,10 @@ type Query {
   pipelines: [Pipeline!]!
   notes(targetType: ObjectType!, targetId: ID!, first: Int, after: Cursor): NoteConnection!
   savedViews(objectType: ObjectType!): [SavedView!]!
+
+  # CSV import/export job history + polling (file bytes move over REST, §5.9)
+  dataJob(id: ID!): DataJob
+  dataJobs(kind: DataJobKind, objectType: ObjectType, first: Int, after: Cursor): DataJobConnection!
 
   # bounded name lookup for ⌘K (ILIKE; not a search-index tier)
   search(term: String!, types: [ObjectType!]): SearchConnection!
@@ -1201,7 +1271,13 @@ type Mutation {
   createFieldDefinition(input: CreateFieldDefinitionInput!): FieldDefinition!
   updateFieldDefinition(id: ID!, input: UpdateFieldDefinitionInput!): FieldDefinition!
   deleteFieldDefinition(id: ID!): HardDeletePayload!
+
+  # CSV export: no file upload, so it is a normal mutation. It enqueues a job
+  # and returns the DataJob to poll; the file arrives via DataJob.downloadUrl.
+  # (CSV IMPORT starts with a file upload and is therefore REST — see §5.9.)
+  createExport(input: CreateExportInput!): DataJob!
 }
+input CreateExportInput { objectType: ObjectType!, filter: JSON, orderBy: JSON, savedViewId: ID }
 
 type SoftDeletePayload { id: ID! deletedAt: DateTime! }      # soft-deletable objects
 type HardDeletePayload { id: ID! }                            # hard-deleted objects
@@ -1213,7 +1289,8 @@ Representative inputs:
 input CreateWorkspaceInput { name: String!, slug: String }
 input InviteMemberInput   { email: String!, role: WorkspaceRole! }   # role != OWNER
 input AcceptInviteInput   { token: String! }
-input CreateContactInput  { firstName: String, lastName: String, email: String, phone: String,
+input CreateContactInput  { firstName: String, lastName: String, email: String,
+                            phone: String, phoneRegion: String,   # phone = E.164, OR a national number + phoneRegion (ISO 3166-1 alpha-2); normalized server-side to E.164, else INVALID_PHONE
                             companyId: ID, ownerUserId: ID, customFields: JSON }
 input CreateDealInput     { title: String!, amount: Decimal, currency: String,
                             pipelineId: ID!, stageId: ID!, companyId: ID, primaryContactId: ID,
@@ -1230,6 +1307,8 @@ All collections use Relay connections; offset pagination is prohibited (drifts u
 type PageInfo { hasNextPage: Boolean! hasPreviousPage: Boolean! startCursor: Cursor endCursor: Cursor }
 type ContactEdge { node: Contact! cursor: Cursor! }
 type ContactConnection { edges: [ContactEdge!]! pageInfo: PageInfo! totalCount: Int }
+type DataJobEdge { node: DataJob! cursor: Cursor! }
+type DataJobConnection { edges: [DataJobEdge!]! pageInfo: PageInfo! totalCount: Int }
 ```
 
 - **Cursor encoding:** opaque base64url JSON of the sort keys plus the UUIDv7 id tiebreaker. Not an offset, not the raw id. A malformed cursor → typed `INVALID_CURSOR`, never a 500.
@@ -1273,8 +1352,9 @@ Translation layer (`modules/common/filtering`):
 export enum AppErrorCode {
   UNAUTHENTICATED='UNAUTHENTICATED', FORBIDDEN='FORBIDDEN', NOT_FOUND='NOT_FOUND',
   BAD_USER_INPUT='BAD_USER_INPUT', CONFLICT='CONFLICT', INVALID_CURSOR='INVALID_CURSOR',
-  ARGS_CONFLICT='ARGS_CONFLICT', RATE_LIMITED='RATE_LIMITED', QUERY_TOO_COMPLEX='QUERY_TOO_COMPLEX',
-  FIELD_NOT_FOUND='FIELD_NOT_FOUND', INTERNAL='INTERNAL',
+  ARGS_CONFLICT='ARGS_CONFLICT', INVALID_ARGS_FIRST='INVALID_ARGS_FIRST', INVALID_QUERY_INPUT='INVALID_QUERY_INPUT',
+  RATE_LIMITED='RATE_LIMITED', QUERY_TOO_COMPLEX='QUERY_TOO_COMPLEX',
+  FIELD_NOT_FOUND='FIELD_NOT_FOUND', INVALID_PHONE='INVALID_PHONE', INTERNAL='INTERNAL',
 }
 ```
 
@@ -1284,6 +1364,7 @@ export enum AppErrorCode {
 |---|---|---|
 | `AppError(NOT_FOUND)` | `NOT_FOUND` | safe message + resource |
 | `class-validator` failure | `BAD_USER_INPUT` | per-field messages in `extensions.fields` |
+| Un-parseable phone (`libphonenumber-js`) | `INVALID_PHONE` | "Enter a valid phone number for the selected country." (field-scoped) |
 | Prisma `P2002` (unique) | `CONFLICT` | "That slug is already taken." — no constraint name |
 | Optimistic version mismatch | `CONFLICT` | "This record changed since you loaded it." |
 | Prisma `P2025` / RLS empty result | `NOT_FOUND` | generic (no cross-tenant existence oracle) |
@@ -1346,6 +1427,25 @@ All responses JSON; the refresh token lives only in the httpOnly cookie `clevar_
 
 Health responses never include version/build hashes or connection strings. `apps/worker` exposes its own `/healthz`/`/readyz` (queue connectivity) so a stuck worker doesn't fail the API's readiness.
 
+### 5.9 CSV import / export (REST file transfer + GraphQL status)
+
+File **bytes** move over REST under `/imports` and `/exports`; **status and history** are read through GraphQL (`dataJob`/`dataJobs`). File transfer is REST because multipart upload and `text/csv` streaming download are HTTP-transport concerns awkward through Apollo, and because large files must not pass through the GraphQL execution layer. Every endpoint runs behind the same `JwtAuthGuard` + `WorkspaceGuard` + RLS transaction as GraphQL; member role suffices (import/export touch record data, not pipeline structure).
+
+| Method & path | In | Out | Notes |
+|---|---|---|---|
+| `GET /exports/templates/:objectType.csv` | — | `text/csv` | Header-only template; columns = importable core fields for the object **+ each active custom-field key** for the workspace. Generated synchronously (no job). |
+| `POST /imports/:objectType` | `multipart/form-data` (`file`, `columnMapping` JSON) | `{ jobId }` (202) | Validates content-type + size (`IMPORT_MAX_FILE_BYTES`); stores the CSV at `ws/<workspace_id>/imports/<job_id>.csv`; inserts a `data_jobs` row (`kind=import`, `status=pending`); enqueues `data.import`. Rejects if the workspace already has 3 in-flight jobs (§1.6). |
+| `GET /imports/:jobId/errors.csv` | — | `text/csv` (streamed) | Row-level error report (`row_number,error_code,message,<original columns>`); only when `error_count > 0`. The `data_jobs` row is looked up under RLS first (foreign `jobId` 404s), then the endpoint **streams** the object from storage through the authenticated response — the storage URL is never exposed to the client. |
+| `POST /exports` | `{ objectType, filter?, orderBy?, savedViewId? }` | `{ jobId }` (202) | Equivalent to the `createExport` GraphQL mutation; provided in REST for symmetry. Snapshots the filter into `export_filter`, enqueues `data.export`. |
+| `GET /exports/:jobId/file.csv` | — | `text/csv` (streamed) | The generated export; only when `status=COMPLETED`. RLS-scoped `data_jobs` lookup, then the file is **streamed** through the authenticated endpoint (no redirect, no client-visible storage URL). |
+
+- **Client flow (import):** `GET …/template.csv` → user fills it → `POST /imports/:objectType` with a header→field `columnMapping` → poll `dataJob(id)` until `COMPLETED`/`FAILED` → if `errorCount>0`, offer `GET /imports/:jobId/errors.csv`.
+- **Client flow (export):** `createExport` (or `POST /exports`) → poll `dataJob(id)` → on `COMPLETED`, `fetch` `DataJob.downloadUrl` with the `Authorization` header and save the returned blob (the API streams it; no storage URL is exposed).
+- **Download model:** the default access path is **authenticated streaming** through `apps/api` after an RLS-scoped `data_jobs` lookup — no redirect, no client-visible storage URL, nothing leaked into browser history or proxy logs. For very large exports a storage driver MAY instead mint a short-lived presigned URL (TTL `STORAGE_SIGNED_URL_TTL`, default 120 s); error reports are always streamed, never presigned.
+- **Validation parity:** import reuses the *same* server-side validators as the GraphQL `create*` mutations — type coercion, required fields, option membership for selects, `field_definitions` custom-field checks, and E.164 phone normalization — so an imported row and an API-created row are validated identically. Invalid rows are skipped and reported; valid rows commit.
+- **Dedupe / upsert:** on the object's natural key (contacts `email`, companies `domain`, deals `title`+`pipeline_id` — confirm in Open Questions); matching rows update, others insert. All writes pass through RLS and the `set_workspace_id` trigger, so a row cannot be written into another tenant even if a `workspace_id` column appears in the CSV (it is ignored).
+- **Throughput:** the worker streams the CSV (never loads it whole), processes in batched transactions, and updates `processed_rows`/counts so the UI shows live progress. Presigned URLs are minted only after an RLS-scoped `data_jobs` lookup and expire quickly.
+
 ---
 
 ## 6. Frontend / UI Architecture
@@ -1398,7 +1498,7 @@ All three objects share one headless table engine (`@tanstack/react-table`); we 
 
 `/:workspaceSlug/contacts/:id` (and analogues), fetched via a single-record hook; related collections are lazy connection queries per tab.
 
-- **Fields tab** — core fields then custom fields from `fieldDefinitions(objectType)`. Each field is click-to-edit (`InlineEditField`): editing commits an optimistic patch via `update*` passing the loaded `expectedVersion`; a `CONFLICT` surfaces a "record changed, reload" prompt. Custom-field edits validate client-side against the definition before submit.
+- **Fields tab** — core fields then custom fields from `fieldDefinitions(objectType)`. Each field is click-to-edit (`InlineEditField`): editing commits an optimistic patch via `update*` passing the loaded `expectedVersion`; a `CONFLICT` surfaces a "record changed, reload" prompt. Custom-field edits validate client-side against the definition before submit. **Phone** fields (the contact `phone` and any `phone`-typed custom field) render a `PhoneInput` with a country-code selector (default region from the workspace locale); it sends `{ phone, phoneRegion }`, mirrors the server's `libphonenumber-js` parse for instant feedback, and displays stored E.164 in the user's local format.
 - **Notes tab** — reverse-chronological `notes(targetType, targetId)` timeline; the composer creates a note with an optimistic entry. Note body is **markdown** (consistent with the SDL).
 - **Related tab** — connection queries for associated objects rendered via a compact `RecordTable`; "+ Deal" on a contact opens a pre-filled sheet.
 
@@ -1450,15 +1550,30 @@ apps/web/src/
   lib/{apollo,auth,url}/
   stores/{useShellStore,useBoardStore,useCommandStore}.ts
   gql/                       # GENERATED (gitignored)
-  features/{auth,records,contacts,companies,deals,notes,views,settings,search}/
-  components/                # EmptyState, ErrorState, DataLoader
+  features/{auth,records,contacts,companies,deals,notes,views,settings,search,dataio}/
+  components/                # EmptyState, ErrorState, DataLoader, PhoneInput
 ```
+
+`features/dataio` holds the import wizard, export action, and job-status polling shared across all three objects.
 
 ### 6.8 Design system & UX states
 
 shadcn/ui primitives generated into `packages/ui` (`@clevar/ui`); Tailwind configured against CSS custom properties for theming (`.dark` toggle persisted in `useShellStore`). Feature components compose `@clevar/ui` (never Radix directly); `cn()` + `class-variance-authority` drive variants (e.g. badge per stage color). TanStack Table renders through shadcn `Table` primitives.
 
 Loading/empty/error UX: skeletons matching the final layout; inline "load more" spinner; distinct `EmptyState` for no-records vs filtered-to-nothing; `ErrorState` with retry (network vs permission copy); mutation errors as toasts mapped from `extensions.code`; stale-while-revalidate background refetch. Optimistic updates (inline create/edit, note create, deal drag) supply an `optimisticResponse` + cache `update`; on error Apollo discards the optimistic layer and a toast appears. Normalised-by-`id` cache means one edit propagates to list, detail header, peek sheet, and related tables.
+
+### 6.9 Import / export (`features/dataio`)
+
+Every list view toolbar carries an **Import** and an **Export** action; a workspace-level **Data jobs** screen (under Settings) lists recent jobs via `dataJobs`.
+
+- **Import wizard** (a shadcn `Dialog`/stepper):
+  1. **Download template** — a button hitting `GET /exports/templates/:objectType.csv`, so the user starts from the exact importable columns (core + their active custom fields).
+  2. **Upload** — drag-drop a `.csv`; client-side checks extension + size against `IMPORT_MAX_FILE_BYTES` before `POST /imports/:objectType`.
+  3. **Map columns** — the wizard parses the header row locally and proposes a header→field `columnMapping` (auto-matching by name, including `custom_fields.<key>`), which the user confirms/edits.
+  4. **Run & watch** — submits the mapping; then polls `dataJob(id)` and renders a progress bar from `processedRows`/`totalRows` with running success/error counts.
+  5. **Resolve errors** — on completion with `errorCount>0`, a "Download error report" button follows `GET /imports/:jobId/errors.csv`; the user fixes and re-imports.
+- **Export action** — calls `createExport` with the active view's filter/sort, toasts "Export queued," polls the returned `DataJob`, and on `COMPLETED` fetches `downloadUrl` with the access token and saves the streamed blob. Long exports surface in the Data jobs screen so the user isn't blocked.
+- **State** — in-flight job ids live in a small `useDataJobStore` (Zustand) for cross-screen progress badges; job records themselves are Apollo-cached and polled. No file bytes touch Apollo.
 
 ---
 
@@ -1489,7 +1604,7 @@ clevar/
 | Workspace | Package | Type | Key contents |
 |---|---|---|---|
 | `apps/api` | `@clevar/api` | NestJS HTTP | GraphQL resolvers, services, guards, `TenantContextInterceptor`, auth |
-| `apps/worker` | `@clevar/worker` | NestJS context | BullMQ processors (emails, soft-delete purge), reuses API domain modules |
+| `apps/worker` | `@clevar/worker` | NestJS context | BullMQ processors (emails, soft-delete purge, CSV import/export), reuses API domain modules + the storage client |
 | `apps/web` | `@clevar/web` | Vite SPA | Routes, Apollo Client, generated hooks, TanStack Table views |
 | `packages/db` | `@clevar/db` | Library | `schema.prisma`, `migrations/`, RLS SQL, `PrismaService`, `seed.ts`, `newId()` |
 | `packages/shared` | `@clevar/shared` | Library | enums, zod schemas, error codes, `withTenant`/`TenantContext`, branded IDs |
@@ -1559,7 +1674,14 @@ services:
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports: ["6379:6379"]
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10 }
-volumes: { clevar_pg: }
+  minio:                                  # S3-compatible store for CSV artifacts (import/export)
+    image: minio/minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment: { MINIO_ROOT_USER: clevar, MINIO_ROOT_PASSWORD: clevar-dev-secret }
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["clevar_minio:/data"]
+    healthcheck: { test: ["CMD", "mc", "ready", "local"], interval: 5s, retries: 10 }
+volumes: { clevar_pg: , clevar_minio: }
 ```
 
 First-run:
@@ -1568,6 +1690,7 @@ First-run:
 pnpm install
 cp .env.example .env
 docker compose -f docker/compose.dev.yml up -d
+pnpm --filter @clevar/db storage:init    # create the CSV bucket (STORAGE_S3_BUCKET) in MinIO; idempotent
 pnpm --filter @clevar/db migrate:dev    # apply migrations + RLS SQL (creates clevar_app + clevar_migrator)
 pnpm --filter @clevar/db seed           # demo workspace + users + default pipeline
 pnpm dev                                # turbo: api + worker + web in parallel
@@ -1590,6 +1713,11 @@ One committed `.env.example`. Variables are validated at boot by a `zod` schema;
 | Redis/Queue | `REDIS_URL` | BullMQ + rate limiting |
 | | `QUEUE_PREFIX` | `clevar` |
 | | `WORKER_CONCURRENCY` | `5` |
+| Object storage | `STORAGE_DRIVER` | `s3` (prod) / `minio` (local) |
+| | `STORAGE_S3_ENDPOINT` / `STORAGE_S3_REGION` / `STORAGE_S3_BUCKET` | CSV artifact bucket |
+| | `STORAGE_S3_ACCESS_KEY_ID` / `STORAGE_S3_SECRET_ACCESS_KEY` | bucket credentials |
+| | `STORAGE_SIGNED_URL_TTL` | optional presigned-URL lifetime for large exports, `120` (s); default download path streams through the API |
+| Import limits | `IMPORT_MAX_FILE_BYTES` / `IMPORT_MAX_ROWS` | `20971520` (20 MiB) / `50000` |
 | Auth | `JWT_ACCESS_SECRET` / `JWT_ACCESS_TTL` | HS256; `15m` |
 | | `JWT_REFRESH_SECRET` / `JWT_REFRESH_TTL` | distinct secret; `30d` |
 | | `REFRESH_COOKIE_NAME` | `clevar_rt` — httpOnly, Secure, **SameSite=Strict**, Path=/auth |
@@ -1611,13 +1739,18 @@ const EnvSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   EMAIL_PROVIDER_API_KEY: z.string().min(1),
+  STORAGE_DRIVER: z.enum(["s3","minio"]).default("s3"),
+  STORAGE_S3_BUCKET: z.string().min(1),
+  STORAGE_SIGNED_URL_TTL: z.coerce.number().default(120),
+  IMPORT_MAX_FILE_BYTES: z.coerce.number().default(20_971_520),
+  IMPORT_MAX_ROWS: z.coerce.number().default(50_000),
   PORT: z.coerce.number().default(4000),
   LOG_LEVEL: z.enum(["debug","info","warn","error"]).default("info"),
 });
 export const env = EnvSchema.parse(process.env); // throws → exit non-zero
 ```
 
-A minimal email transport (provider API or SMTP) sends verify/reset/invite messages; templates live in `packages/shared`. The worker dequeues `email.send` jobs (payload: template + recipient + workspace-scoped data).
+A minimal email transport (provider API or SMTP) sends verify/reset/invite messages; templates live in `packages/shared`. The worker dequeues `email.send` jobs (payload: template + recipient + workspace-scoped data), plus `record.purge` (soft-delete + `data_jobs` retention sweep) and `data.import`/`data.export` (each payload carries `workspaceId` + `jobId`; the processor opens its own `withTenant` transaction and streams CSV to/from object storage). Local `docker-compose` includes a **MinIO** service so the storage path is exercised end-to-end on a laptop.
 
 ### 7.6 CI outline (`.github/workflows/ci.yml`)
 
@@ -1668,7 +1801,7 @@ Three layers; the integration layer proves tenant isolation and carries the most
 |---|---|---|
 | Unit | Vitest | Pure functions, services with mocked Prisma/Redis, zod schemas, permission logic, custom-field validation. No I/O. |
 | Integration | Vitest + Testcontainers (CI service Postgres) | Real Postgres 16: repositories, resolvers via in-process Nest test app, and **RLS policy tests**. Per-test transaction rollback or truncate. |
-| E2E | Playwright (web) + supertest (GraphQL) | Full stack: sign-up → verify → create workspace → invite → CRUD contact/company/deal → move deal across stages → save a view. |
+| E2E | Playwright (web) + supertest (GraphQL) | Full stack: sign-up → verify → create workspace → invite → CRUD contact/company/deal → move deal across stages → save a view → download a template, import a CSV (incl. an invalid row), download the error report, export the filtered list. |
 
 **RLS policy tests are first-class** — they connect as the non-superuser `clevar_app` (the same role prod uses):
 
@@ -1694,7 +1827,7 @@ await prisma.$transaction(async (tx) => {
 });
 ```
 
-A CI guard test enumerates every tenant-scoped table from `schema.prisma` and asserts each (minus the reviewed global-table allowlist, §3.12 T11) has RLS enabled + forced + a policy, so a new table without a policy fails the build.
+A CI guard test enumerates every tenant-scoped table from `schema.prisma` and asserts each (minus the reviewed global-table allowlist, §3.12 T11) has RLS enabled + forced + a policy, so a new table without a policy fails the build. **`data_jobs` is in scope for this guard** (it carries `workspace_id`). Dedicated integration tests cover the CSV pipeline: row-level validation parity with `create*` mutations, natural-key dedupe upsert, the row→error mapping, E.164 phone normalization on import, the per-workspace in-flight job ceiling, and that every artifact download (streamed by default, or an optional presigned URL for large exports) is gated by an RLS-scoped `data_jobs` lookup (workspace B cannot fetch workspace A's artifacts even with a guessed key or jobId).
 
 ### 7.9 Migration & seeding
 
@@ -1731,8 +1864,9 @@ Rules: migrations are forward-only and immutable once merged; new tenant-scoped 
 ## 8. Open Questions (consolidated)
 
 **Scope & product**
-1. Confirm the supported custom-field types for v1 (this spec adopts `text, number, boolean, date, single_select, multi_select, url, email`; `datetime`/`currency` are deferred — is that acceptable?).
-2. Is CSV import of contacts/companies a thin Foundation follow-on or fully deferred? (Influences the async worker set and dedup requirements.)
+1. Confirm the supported custom-field types for v1 (this spec adopts `text, number, boolean, date, single_select, multi_select, url, email, phone`; `datetime`/`currency` are deferred — is that acceptable?).
+2. **CSV import/export is now in scope** (contacts, companies, deals; import + downloadable template + filtered export). Confirm the **natural-key dedupe** per object — contacts by `email`, companies by `domain`, deals by `title`+`pipeline_id` — and the desired behavior on a missing key (insert vs reject). Also: should an import be able to **update** existing rows (upsert) or **insert-only** for v1?
+2b. Sync-vs-async threshold and limits OK? (All imports run async via the worker; ceilings 20 MiB / 50,000 rows / 3 concurrent jobs per workspace — §1.6.) Should XLSX/JSON import or scheduled/recurring imports be explicitly deferred (currently yes)?
 3. What is the reference dataset size and SLA environment for the NF1 latency gate (rows per object, concurrent workspaces) so acceptance is measurable?
 4. Is region/data-residency a near-term requirement that should influence the tenancy seam now (workspace→region mapping), or is single-region acceptable for the Foundation?
 5. Should companies support a self-referential `parent_company_id` (subsidiary hierarchies), or is that deferred? (Currently omitted.)
@@ -1765,7 +1899,10 @@ Rules: migrations are forward-only and immutable once merged; new tenant-scoped 
 - **Soft-delete + restore** is assumed for CRM business objects (justifying `deleted_at`, the purge worker, and `restore*` mutations); saved views, memberships, and refresh tokens are hard-deleted/revoked.
 - **Saved views** support both `table` and `kanban` kinds and a personal-vs-shared scope flag; if kanban should be deferred with later kanban/automation work, it moves out of scope.
 - **Invite-by-email** is the only way to add members beyond the workspace creator; SSO/SCIM provisioning is explicitly deferred.
-- **Custom-field data types** are the eight listed in §4.5; richer types (relation-as-field, formula, rollup, datetime, currency) and custom-field uniqueness are deferred.
+- **Custom-field data types** are the nine listed in §4.5 (incl. `phone`); richer types (relation-as-field, formula, rollup, datetime, currency) and custom-field uniqueness are deferred.
+- **Phone numbers** are stored normalized to E.164 (with country code) via `libphonenumber-js`; the API accepts a complete E.164 string or a national number + `phoneRegion`, and rejects un-parseable input with `INVALID_PHONE`. Applies to the contact `phone` column and any `phone`-typed custom field.
+- **CSV import/export** is in scope for contacts, companies, deals: async worker jobs (`data.import`/`data.export`), a downloadable per-object template, filtered export, row-level error reports, and natural-key dedupe upsert. CSV bytes live only in an S3-compatible object store (MinIO locally), with `workspace_id`-prefixed keys accessed by authenticated, RLS-scoped API streaming (optional short-lived presigned URL for large exports); the `data_jobs` table tracks each run under RLS. Non-CSV formats, scheduled imports, and a duplicate merge-review UI are deferred. Import reuses the GraphQL `create*` validators for parity.
+- **Object storage** (S3-compatible) is introduced solely for CSV artifacts; a general record-attachment/file store remains out of scope.
 - **Deployment** targets a Kubernetes-style managed container platform (concrete-but-swappable); the locked stack named containers + managed Postgres/Redis + LB but not a specific orchestrator/cloud.
 - **PgBouncer transaction-pooling mode** is the chosen pooler — the only mode fully compatible with the `SET LOCAL`/`set_config(...,true)` RLS pattern.
 - **Read replicas and `workspace_id` partitioning** are the forward scaling path, NOT a Foundation deliverable; a single primary meets NF1/NF2.
