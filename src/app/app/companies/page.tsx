@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Plus, Building2, Upload, Download } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { bulkDeleteCompanies } from "@/lib/actions/companies";
 import { PageHeader } from "@/components/app/page-header";
 import { SearchBar } from "@/components/app/search-bar";
+import { BulkTable } from "@/components/app/bulk-table";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -74,34 +76,21 @@ export default async function CompaniesPage({
           </Link>
         </Card>
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-secondary/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Domain</th>
-                <th className="px-4 py-3 font-medium">Industry</th>
-                <th className="px-4 py-3 font-medium">Contacts</th>
-                <th className="px-4 py-3 font-medium">Deals</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {companies.map((c) => (
-                <tr key={c.id} className="hover:bg-accent/40">
-                  <td className="px-4 py-3">
-                    <Link href={`/app/companies/${c.id}`} className="font-medium hover:underline">
-                      {c.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.domain ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.industry ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{c._count.contacts}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{c._count.deals}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <BulkTable
+          noun="company"
+          columns={["Name", "Domain", "Industry", "Contacts", "Deals"]}
+          deleteAction={bulkDeleteCompanies}
+          rows={companies.map((c) => ({
+            id: c.id,
+            cells: [
+              <Link key="n" href={`/app/companies/${c.id}`} className="font-medium hover:underline">{c.name}</Link>,
+              <span key="d" className="text-muted-foreground">{c.domain ?? "—"}</span>,
+              <span key="i" className="text-muted-foreground">{c.industry ?? "—"}</span>,
+              <span key="ct" className="text-muted-foreground">{c._count.contacts}</span>,
+              <span key="dl" className="text-muted-foreground">{c._count.deals}</span>,
+            ],
+          }))}
+        />
       )}
     </div>
   );

@@ -165,6 +165,16 @@ export async function updateContact(
   redirect(`/app/contacts/${id}`);
 }
 
+export async function bulkDeleteContacts(ids: string[]): Promise<void> {
+  const ctx = await requireAuth();
+  const clean = ids.filter(Boolean).slice(0, 500);
+  if (clean.length === 0) return;
+  await withTenant(ctx.workspaceId, (tx) =>
+    tx.contact.updateMany({ where: { id: { in: clean } }, data: { deletedAt: new Date() } }),
+  );
+  revalidatePath("/app/contacts");
+}
+
 export async function deleteContact(id: string): Promise<void> {
   const ctx = await requireAuth();
   await withTenant(ctx.workspaceId, async (tx) => {

@@ -191,6 +191,16 @@ export async function moveDealAction(formData: FormData): Promise<void> {
   await moveDeal(dealId, stageId);
 }
 
+export async function bulkDeleteDeals(ids: string[]): Promise<void> {
+  const ctx = await requireAuth();
+  const clean = ids.filter(Boolean).slice(0, 500);
+  if (clean.length === 0) return;
+  await withTenant(ctx.workspaceId, (tx) =>
+    tx.deal.updateMany({ where: { id: { in: clean } }, data: { deletedAt: new Date() } }),
+  );
+  revalidatePath("/app/deals");
+}
+
 export async function deleteDeal(id: string): Promise<void> {
   const ctx = await requireAuth();
   await withTenant(ctx.workspaceId, async (tx) => {

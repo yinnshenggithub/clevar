@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Plus, Users, Upload, Download } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { bulkDeleteContacts } from "@/lib/actions/contacts";
 import { PageHeader } from "@/components/app/page-header";
 import { SearchBar } from "@/components/app/search-bar";
+import { BulkTable } from "@/components/app/bulk-table";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatPhone } from "@/lib/phone";
@@ -76,33 +78,25 @@ export default async function ContactsPage({
           </Link>
         </Card>
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-secondary/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Email</th>
-                <th className="px-4 py-3 font-medium">Phone</th>
-                <th className="px-4 py-3 font-medium">Company</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {contacts.map((c) => (
-                <tr key={c.id} className="hover:bg-accent/40">
-                  <td className="px-4 py-3">
-                    <Link href={`/app/contacts/${c.id}`} className="font-medium hover:underline">
-                      {[c.firstName, c.lastName].filter(Boolean).join(" ") || "Unnamed contact"}
-                    </Link>
-                    {c.jobTitle && <div className="text-xs text-muted-foreground">{c.jobTitle}</div>}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.email ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{formatPhone(c.phone)}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.company?.name ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <BulkTable
+          noun="contact"
+          columns={["Name", "Email", "Phone", "Company"]}
+          deleteAction={bulkDeleteContacts}
+          rows={contacts.map((c) => ({
+            id: c.id,
+            cells: [
+              <div key="n">
+                <Link href={`/app/contacts/${c.id}`} className="font-medium hover:underline">
+                  {[c.firstName, c.lastName].filter(Boolean).join(" ") || "Unnamed contact"}
+                </Link>
+                {c.jobTitle && <div className="text-xs text-muted-foreground">{c.jobTitle}</div>}
+              </div>,
+              <span key="e" className="text-muted-foreground">{c.email ?? "—"}</span>,
+              <span key="p" className="text-muted-foreground">{formatPhone(c.phone)}</span>,
+              <span key="c" className="text-muted-foreground">{c.company?.name ?? "—"}</span>,
+            ],
+          }))}
+        />
       )}
     </div>
   );
