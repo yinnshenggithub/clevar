@@ -43,7 +43,7 @@ export async function RecordActivity({
   const feed = events.filter((e) => e.type !== "note");
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="space-y-6">
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Tasks</CardTitle>
