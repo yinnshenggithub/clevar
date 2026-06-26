@@ -51,6 +51,7 @@ model Workspace {
   aiUsage       AiUsage[]
   credits       WorkspaceCredits?
   whatsappChannels WhatsAppChannel[]
+  webWidgets    WebWidget[]
   conversations Conversation[]
   messages      Message[]
   labels        Label[]
@@ -373,6 +374,25 @@ model WhatsAppChannel {
 
   @@index([workspaceId])
   @@map("whatsapp_channels")
+}
+
+// Public-facing embeddable chat widget config (control-plane, no RLS — the
+// public loader/chat resolves the workspace by publicKey without a session).
+model WebWidget {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  publicKey        String    @unique @map("public_key")
+  name             String    @default("Chat with us")
+  color            String    @default("#FF7A59")
+  welcomeMessage   String    @default("Hi! How can we help?") @map("welcome_message")
+  autoReplyAgentId String?   @map("auto_reply_agent_id") @db.Uuid
+  enabled          Boolean   @default(true)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("web_widgets")
 }
 
 model Conversation {

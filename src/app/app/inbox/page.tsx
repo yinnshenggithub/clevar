@@ -36,7 +36,7 @@ export default async function InboxPage({
   const tab = TABS.find((t) => t.key === (s ?? "all")) ?? TABS[0];
   const ctx = await requireAuth();
 
-  const [data, agents, members, allLabels, canned, macros, channel] = await Promise.all([
+  const [data, agents, members, allLabels, canned, macros, channel, widget] = await Promise.all([
     withTenant(ctx.workspaceId, async (tx) => {
       const where: Prisma.ConversationWhereInput = {
         ...(tab.status ? { status: tab.status } : {}),
@@ -83,6 +83,7 @@ export default async function InboxPage({
       tx.macro.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     ),
     prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } }),
+    prisma.webWidget.findFirst({ where: { workspaceId: ctx.workspaceId } }),
   ]);
 
   const memberList = members.map((m) => ({ id: m.user.id, name: m.user.fullName }));
@@ -98,24 +99,32 @@ export default async function InboxPage({
       <Link href="/app/inbox/macros">
         <Button variant="outline" size="sm">Macros</Button>
       </Link>
+      <Link href="/app/inbox/widget">
+        <Button variant="outline" size="sm">Web widget</Button>
+      </Link>
       <Link href="/app/inbox/settings">
         <Button variant="outline" className="gap-2">
-          <Settings className="h-4 w-4" /> Settings
+          <Settings className="h-4 w-4" /> WhatsApp
         </Button>
       </Link>
     </div>
   );
 
-  if (!channel) {
+  if (!channel && !widget && data.convos.length === 0) {
     return (
       <div>
-        <PageHeader title="Inbox" description="WhatsApp conversations." action={settingsBtn} />
+        <PageHeader title="Inbox" description="Connect a channel to start receiving messages." action={settingsBtn} />
         <Card className="flex flex-col items-center justify-center gap-3 py-16 text-center">
           <MessageSquare className="h-10 w-10 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No WhatsApp channel connected yet.</p>
-          <Link href="/app/inbox/settings">
-            <Button>Connect WhatsApp</Button>
-          </Link>
+          <p className="text-sm text-muted-foreground">No channels connected yet.</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link href="/app/inbox/settings">
+              <Button>Connect WhatsApp</Button>
+            </Link>
+            <Link href="/app/inbox/widget">
+              <Button variant="outline">Add website chat widget</Button>
+            </Link>
+          </div>
         </Card>
       </div>
     );
@@ -139,7 +148,11 @@ export default async function InboxPage({
 
   return (
     <div>
-      <PageHeader title="Inbox" description={channel.displayName} action={settingsBtn} />
+      <PageHeader
+        title="Inbox"
+        description={channel?.displayName ?? (widget ? "Website chat" : "All conversations")}
+        action={settingsBtn}
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[300px_1fr]">
         {/* Conversation list */}

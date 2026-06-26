@@ -100,6 +100,22 @@ export async function replyToConversation(
     return {};
   }
 
+  // Web-chat replies are persisted only — the visitor's widget polls for them.
+  if (convo.channelType === "webchat") {
+    if (hasFile) return { error: "Attachments aren't supported on web chat yet." };
+    await withTenant(ctx.workspaceId, async (tx) => {
+      await tx.message.create({
+        data: { workspaceId: ctx.workspaceId, conversationId, direction: "OUTBOUND", authorUserId: ctx.userId, body, type: "text" },
+      });
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date(), waitingSince: null, ...(convo.firstReplyAt ? {} : { firstReplyAt: new Date() }) },
+      });
+    });
+    revalidatePath("/app/inbox");
+    return {};
+  }
+
   const channel = await prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } });
   if (!channel) return { error: "Connect a WhatsApp channel first (Inbox → Settings)." };
 
