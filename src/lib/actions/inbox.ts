@@ -6,7 +6,7 @@ import type { ConversationStatus } from "@prisma/client";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
-import { sendWhatsAppText } from "@/lib/whatsapp";
+import { sendWhatsAppText, sendWhatsAppMedia, uploadWhatsAppMedia, mediaTypeFromMime } from "@/lib/whatsapp";
 
 export interface ChannelState {
   error?: string;
@@ -71,7 +71,9 @@ export async function replyToConversation(
 ): Promise<ReplyState> {
   const ctx = await requireAuth();
   const body = String(formData.get("body") ?? "").trim();
-  if (!body) return { error: "Message is empty." };
+  const file = formData.get("file");
+  const hasFile = file instanceof File && file.size > 0;
+  if (!body && !hasFile) return { error: "Message is empty." };
 
   const convo = await withTenant(ctx.workspaceId, (tx) =>
     tx.conversation.findFirst({ where: { id: conversationId } }),
@@ -82,8 +84,32 @@ export async function replyToConversation(
   if (!channel) return { error: "Connect a WhatsApp channel first (Inbox → Settings)." };
 
   let waId: string | undefined;
+  let type = "text";
+  let mediaId: string | null = null;
+  let mediaMime: string | null = null;
+  let mediaFilename: string | null = null;
+
   try {
-    waId = await sendWhatsAppText(channel.phoneNumberId, channel.accessToken, convo.customerPhone, body);
+    if (hasFile) {
+      const f = file as File;
+      if (f.size > 16 * 1024 * 1024) return { error: "File too large (max 16 MB)." };
+      const mime = f.type || "application/octet-stream";
+      type = mediaTypeFromMime(mime);
+      mediaMime = mime;
+      mediaFilename = f.name;
+      mediaId = await uploadWhatsAppMedia(channel.phoneNumberId, channel.accessToken, f, mime, f.name);
+      waId = await sendWhatsAppMedia(
+        channel.phoneNumberId,
+        channel.accessToken,
+        convo.customerPhone,
+        type as "image" | "video" | "audio" | "document",
+        mediaId,
+        body || undefined,
+        f.name,
+      );
+    } else {
+      waId = await sendWhatsAppText(channel.phoneNumberId, channel.accessToken, convo.customerPhone, body);
+    }
   } catch (e) {
     console.error("replyToConversation send failed", e);
     return { error: e instanceof Error ? e.message : "Failed to send message." };
@@ -91,7 +117,17 @@ export async function replyToConversation(
 
   await withTenant(ctx.workspaceId, async (tx) => {
     await tx.message.create({
-      data: { workspaceId: ctx.workspaceId, conversationId, direction: "OUTBOUND", body, waMessageId: waId },
+      data: {
+        workspaceId: ctx.workspaceId,
+        conversationId,
+        direction: "OUTBOUND",
+        body,
+        type,
+        mediaId,
+        mediaMime,
+        mediaFilename,
+        waMessageId: waId,
+      },
     });
     await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
   });
