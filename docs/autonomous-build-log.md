@@ -71,7 +71,7 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - [x] **W5 — Tasks + activity timeline.** Task model (title, due, status, assignee, parent link). ActivityEvent feed shown on contact/company/deal detail; global /app/tasks page; notes now surfaced on records. → `868ee21`, migration 15. (Custom-record timeline not wired — only core CRM objects.)
 - [x] **W6 — Field types.** Added currency, multi_select, url, email, phone, rich_text, rating to custom-objects FIELD_TYPES + form inputs + render. → `00f3d1e` (no migration — metadata-driven).
 - [ ] **W7 — Saved views + table UX.** SavedView (object, filters json, sort, group, columns); advanced filter builder, multi-sort, group-by, column show/hide, bulk delete/select on CRM lists + custom objects.
-- [ ] **W8 — Cmd+K + global search + favorites.** Workspace-wide ranked search across objects; command palette; Favorite model + sidebar pins.
+- [x] **W8 — Cmd+K + global search + favorites.** ⌘K palette (cross-object search + quick actions), header search box, Favorite model + star toggle + sidebar pins. → `6872787`, migration 16. (Done before W7 — higher UX leverage. Palette links to /app/reports which lands in W9.)
 - [ ] **W9 — Reporting + CSAT.** ReportingEvent capture (first response, resolution, reply time); overview/agent/inbox dashboards; CSAT model + metrics. CSV export of reports.
 - [ ] **W10 — Help center.** Portal + Category + Article (public, FTS, slugs); public route; admin authoring UI.
 - [ ] **W11 — API + webhooks + audit.** ApiKey (hash, scopes, revoke), public REST under /api/v1 with key auth + workspace scoping + pagination; Webhook (url, events, secret) + delivery on events; AuditLog (actor, action, entity, diff) + viewer.
@@ -90,3 +90,4 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - 2026-06-27: **W5 shipped** `868ee21` (migration 15_tasks_activity).
 - 2026-06-27: **W6 shipped** `00f3d1e` (no migration).
 - 2026-06-27: User directive added mid-run → **W15** HubSpot-style UI/UX capstone pass appended to plan (do after feature waves).
+- 2026-06-27: **W8 shipped** `6872787` (migration 16_favorites). Reordered ahead of W7 for UX leverage.
