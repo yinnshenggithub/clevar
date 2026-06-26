@@ -2,7 +2,7 @@ import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { createWorkflow } from "@/lib/actions/workflows";
 import { PageHeader } from "@/components/app/page-header";
-import { WorkflowForm } from "@/components/app/workflow-form";
+import { WorkflowCanvas } from "@/components/app/workflow-canvas";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +15,10 @@ export default async function NewWorkflowPage() {
 
   return (
     <div>
-      <PageHeader title="New workflow" description="Pick a trigger, an optional condition, and an action." />
+      <PageHeader title="New workflow" description="Drag the canvas, click nodes to configure the trigger and actions." />
       <Card>
         <CardContent className="pt-6">
-          <WorkflowForm action={createWorkflow} agents={agents} submitLabel="Create workflow" />
+          <WorkflowCanvas action={createWorkflow} agents={agents} submitLabel="Create workflow" />
         </CardContent>
       </Card>
     </div>

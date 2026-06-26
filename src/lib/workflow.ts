@@ -67,8 +67,10 @@ export async function runWorkflows(
   for (const wf of workflows) {
     try {
       if (!matchesCondition(wf, ctx)) continue;
-      const replied = await runAction(workspaceId, wf, ctx);
-      repliedExternally = repliedExternally || replied;
+      for (const step of resolveSteps(wf)) {
+        const replied = await runStep(workspaceId, step, ctx);
+        repliedExternally = repliedExternally || replied;
+      }
     } catch (e) {
       console.error("workflow action failed", wf.id, e);
     }
@@ -76,35 +78,46 @@ export async function runWorkflows(
   return { repliedExternally };
 }
 
-/** Executes one workflow action. Returns true if it sent a reply to the customer. */
-async function runAction(workspaceId: string, wf: Workflow, ctx: WorkflowContext): Promise<boolean> {
-  if (wf.actionType === "assign_agent") {
+interface Step {
+  type: string;
+  agentId: string | null;
+  text: string | null;
+}
+
+/** Uses the canvas `steps` array if present, else the legacy single-action columns. */
+function resolveSteps(wf: Workflow): Step[] {
+  const raw = wf.steps;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return (raw as unknown[]).map((s) => {
+      const o = (s ?? {}) as Record<string, unknown>;
+      return {
+        type: String(o.type ?? ""),
+        agentId: o.agentId ? String(o.agentId) : null,
+        text: o.text ? String(o.text) : null,
+      };
+    });
+  }
+  return [{ type: wf.actionType, agentId: wf.actionAgentId, text: wf.actionText }];
+}
+
+/** Executes one workflow step. Returns true if it sent a reply to the customer. */
+async function runStep(workspaceId: string, step: Step, ctx: WorkflowContext): Promise<boolean> {
+  if (step.type === "assign_agent") {
     // Only assign here; the AI reply is performed once by the caller (webhook).
-    if (ctx.conversationId && wf.actionAgentId) {
+    if (ctx.conversationId && step.agentId) {
       await withTenant(workspaceId, (tx) =>
-        tx.conversation.update({ where: { id: ctx.conversationId! }, data: { assignedAgentId: wf.actionAgentId } }),
+        tx.conversation.update({ where: { id: ctx.conversationId! }, data: { assignedAgentId: step.agentId } }),
       );
     }
     return false;
   }
 
-  if (wf.actionType === "send_reply") {
-    if (ctx.conversationId && ctx.channel && ctx.customerPhone && wf.actionText) {
-      const waId = await sendWhatsAppText(
-        ctx.channel.phoneNumberId,
-        ctx.channel.accessToken,
-        ctx.customerPhone,
-        wf.actionText,
-      );
+  if (step.type === "send_reply") {
+    if (ctx.conversationId && ctx.channel && ctx.customerPhone && step.text) {
+      const waId = await sendWhatsAppText(ctx.channel.phoneNumberId, ctx.channel.accessToken, ctx.customerPhone, step.text);
       await withTenant(workspaceId, async (tx) => {
         await tx.message.create({
-          data: {
-            workspaceId,
-            conversationId: ctx.conversationId!,
-            direction: "OUTBOUND",
-            body: wf.actionText!,
-            waMessageId: waId,
-          },
+          data: { workspaceId, conversationId: ctx.conversationId!, direction: "OUTBOUND", body: step.text!, waMessageId: waId },
         });
         await tx.conversation.update({ where: { id: ctx.conversationId! }, data: { lastMessageAt: new Date() } });
       });
@@ -113,14 +126,14 @@ async function runAction(workspaceId: string, wf: Workflow, ctx: WorkflowContext
     return false;
   }
 
-  if (wf.actionType === "add_note" && wf.actionText) {
+  if (step.type === "add_note" && step.text) {
     if (ctx.contactId) {
       await withTenant(workspaceId, (tx) =>
-        tx.note.create({ data: { workspaceId, parentType: "CONTACT", parentId: ctx.contactId!, body: wf.actionText! } }),
+        tx.note.create({ data: { workspaceId, parentType: "CONTACT", parentId: ctx.contactId!, body: step.text! } }),
       );
     } else if (ctx.dealId) {
       await withTenant(workspaceId, (tx) =>
-        tx.note.create({ data: { workspaceId, parentType: "DEAL", parentId: ctx.dealId!, body: wf.actionText! } }),
+        tx.note.create({ data: { workspaceId, parentType: "DEAL", parentId: ctx.dealId!, body: step.text! } }),
       );
     }
   }

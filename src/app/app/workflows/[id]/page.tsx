@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateWorkflow, deleteWorkflow } from "@/lib/actions/workflows";
 import { PageHeader } from "@/components/app/page-header";
-import { WorkflowForm } from "@/components/app/workflow-form";
+import { WorkflowCanvas } from "@/components/app/workflow-canvas";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -40,7 +40,7 @@ export default async function WorkflowDetailPage({
       />
       <Card>
         <CardContent className="pt-6">
-          <WorkflowForm
+          <WorkflowCanvas
             action={updateWorkflow.bind(null, id)}
             agents={agents}
             defaults={{
@@ -50,9 +50,16 @@ export default async function WorkflowDetailPage({
               conditionField: workflow.conditionField,
               conditionOp: workflow.conditionOp,
               conditionValue: workflow.conditionValue,
-              actionType: workflow.actionType,
-              actionAgentId: workflow.actionAgentId,
-              actionText: workflow.actionText,
+              steps:
+                Array.isArray(workflow.steps) && workflow.steps.length > 0
+                  ? (workflow.steps as { type: string; agentId?: string | null; text?: string | null }[])
+                  : [
+                      {
+                        type: workflow.actionType,
+                        agentId: workflow.actionAgentId,
+                        text: workflow.actionText,
+                      },
+                    ],
             }}
             submitLabel="Save changes"
           />

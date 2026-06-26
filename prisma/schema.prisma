@@ -343,6 +343,7 @@ model Workflow {
   actionType     String    @map("action_type")
   actionAgentId  String?   @map("action_agent_id") @db.Uuid
   actionText     String?   @map("action_text")
+  steps          Json      @default("[]") // ordered actions for the canvas builder: [{type, agentId?, text?}]
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

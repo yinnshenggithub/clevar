@@ -13,6 +13,12 @@ export interface FormState {
 const TRIGGERS = ["message_received", "contact_created", "deal_created", "deal_stage_changed"] as const;
 const ACTIONS = ["assign_agent", "send_reply", "add_note"] as const;
 
+const stepSchema = z.object({
+  type: z.enum(ACTIONS),
+  agentId: z.string().uuid().optional().or(z.literal("")),
+  text: z.string().max(2000).optional(),
+});
+
 const schema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   enabled: z.boolean(),
@@ -20,12 +26,18 @@ const schema = z.object({
   conditionField: z.string().max(40).optional(),
   conditionOp: z.enum(["contains", "equals"]).optional(),
   conditionValue: z.string().max(500).optional(),
-  actionType: z.enum(ACTIONS),
-  actionAgentId: z.string().uuid().optional().or(z.literal("")),
-  actionText: z.string().max(2000).optional(),
+  steps: z.array(stepSchema).min(1, "Add at least one action"),
 });
 
+type Parsed = z.infer<typeof schema>;
+
 function read(formData: FormData) {
+  let steps: unknown = [];
+  try {
+    steps = JSON.parse(String(formData.get("steps") ?? "[]"));
+  } catch {
+    steps = [];
+  }
   return schema.safeParse({
     name: formData.get("name"),
     enabled: formData.get("enabled") === "on",
@@ -33,21 +45,22 @@ function read(formData: FormData) {
     conditionField: formData.get("conditionField") || undefined,
     conditionOp: (formData.get("conditionOp") as string) || undefined,
     conditionValue: formData.get("conditionValue") || undefined,
-    actionType: formData.get("actionType"),
-    actionAgentId: formData.get("actionAgentId") || "",
-    actionText: formData.get("actionText") || undefined,
+    steps,
   });
 }
 
-function validateAction(v: z.infer<typeof schema>): string | null {
-  if (v.actionType === "assign_agent" && !v.actionAgentId) return "Choose an AI agent for the assign action.";
-  if ((v.actionType === "send_reply" || v.actionType === "add_note") && !v.actionText?.trim())
-    return "Enter the text for the action.";
+function validateSteps(v: Parsed): string | null {
+  for (const s of v.steps) {
+    if (s.type === "assign_agent" && !s.agentId) return "Each 'assign agent' step needs an agent.";
+    if ((s.type === "send_reply" || s.type === "add_note") && !s.text?.trim())
+      return "Each reply/note step needs text.";
+  }
   return null;
 }
 
-function fields(v: z.infer<typeof schema>) {
+function fields(v: Parsed) {
   const hasCondition = Boolean(v.conditionField && v.conditionValue);
+  const first = v.steps[0];
   return {
     name: v.name,
     enabled: v.enabled,
@@ -55,9 +68,15 @@ function fields(v: z.infer<typeof schema>) {
     conditionField: hasCondition ? v.conditionField! : null,
     conditionOp: hasCondition ? v.conditionOp ?? "contains" : null,
     conditionValue: hasCondition ? v.conditionValue! : null,
-    actionType: v.actionType,
-    actionAgentId: v.actionType === "assign_agent" ? v.actionAgentId || null : null,
-    actionText: v.actionType === "assign_agent" ? null : v.actionText?.trim() || null,
+    steps: v.steps.map((s) => ({
+      type: s.type,
+      agentId: s.type === "assign_agent" ? s.agentId || null : null,
+      text: s.type === "assign_agent" ? null : s.text?.trim() || null,
+    })),
+    // legacy single-action columns kept in sync for back-compat / list display
+    actionType: first.type,
+    actionAgentId: first.type === "assign_agent" ? first.agentId || null : null,
+    actionText: first.type === "assign_agent" ? null : first.text?.trim() || null,
   };
 }
 
@@ -65,7 +84,7 @@ export async function createWorkflow(_prev: FormState, formData: FormData): Prom
   const ctx = await requireAuth();
   const parsed = read(formData);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const err = validateAction(parsed.data);
+  const err = validateSteps(parsed.data);
   if (err) return { error: err };
   try {
     await withTenant(ctx.workspaceId, (tx) =>
@@ -83,12 +102,10 @@ export async function updateWorkflow(id: string, _prev: FormState, formData: For
   const ctx = await requireAuth();
   const parsed = read(formData);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const err = validateAction(parsed.data);
+  const err = validateSteps(parsed.data);
   if (err) return { error: err };
   try {
-    await withTenant(ctx.workspaceId, (tx) =>
-      tx.workflow.update({ where: { id }, data: fields(parsed.data) }),
-    );
+    await withTenant(ctx.workspaceId, (tx) => tx.workflow.update({ where: { id }, data: fields(parsed.data) }));
   } catch (e) {
     console.error("updateWorkflow failed", e);
     return { error: "Could not update the workflow." };
