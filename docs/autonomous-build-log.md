@@ -73,12 +73,15 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - [ ] **W7 — Saved views + table UX.** SavedView (object, filters json, sort, group, columns); advanced filter builder, multi-sort, group-by, column show/hide, bulk delete/select on CRM lists + custom objects.
 - [x] **W8 — Cmd+K + global search + favorites.** ⌘K palette (cross-object search + quick actions), header search box, Favorite model + star toggle + sidebar pins. → `6872787`, migration 16. (Done before W7 — higher UX leverage. Palette links to /app/reports which lands in W9.)
 - [x] **W9 — Reporting dashboard.** /app/reports computes sales/support/team metrics live (open pipeline, won-this-month, pipeline-by-stage, conversations, avg first-response, msg volume, tasks, credits). → `2a0c4f4` (no migration). CSAT + CSV export deferred (CSAT needs live channel to collect).
-- [ ] **W10 — Help center.** Portal + Category + Article (public, FTS, slugs); public route; admin authoring UI.
+- [x] **W10 — Help center.** Article + ArticleCategory (control-plane, public). Admin /app/help (CRUD + publish). Public /help/[slug] portal (search + categories) + /help/[slug]/[article]. → `2602d1a`, migration 17.
 - [ ] **W11 — API + webhooks + audit.** ApiKey (hash, scopes, revoke), public REST under /api/v1 with key auth + workspace scoping + pagination; Webhook (url, events, secret) + delivery on events; AuditLog (actor, action, entity, diff) + viewer.
 - [ ] **W12 — Web chat widget.** Public embeddable widget (JS snippet + iframe/script), public message endpoints, new channelType "webchat" routed into the same inbox; widget appearance settings.
 - [ ] **W13 — Teams + routing + hours.** Team model + membership; auto-assignment (round-robin) on inbound; business hours; auto-resolve idle via Vercel cron.
 - [ ] **W14 — Granular RBAC.** Custom roles + per-object permission matrix; enforce in actions + nav. (Last — highest retrofit risk.)
 - [ ] **W15 — HubSpot-style UI/UX pass (capstone, user-requested 2026-06-27).** After features land, optimize the whole app for HubSpot's latest look + ease of use: consistent app shell/topbar, refined sidebar + nav grouping, card/table/list polish, spacing/typography rhythm, empty states, primary-action affordances, breadcrumbs, mobile smoothness, dark mode parity. Aim: friction-free, demoable, GTM-ready ($100M ARR target). No new data — purely UX/visual + microcopy. Use frontend-design skill; HubSpot cues = airy white surfaces, soft shadows, rounded cards, orange (#FF7A59) primary accent on calm neutrals, clear section headers, generous padding.
+
+## Context / compaction protocol (user directive 2026-06-27)
+Checkpoint at every wave boundary: build-pass → migrate → commit → push → update this log. State lives in git + this file, so an auto-compaction (the harness summarizes near context limit) is seamless — after it, re-read this file and continue from the first unchecked wave. Can't self-invoke `/compact`; rely on git+log durability. Never leave a wave half-committed across a compaction.
 
 ## Progress log
 - 2026-06-27: Prep done — schema read, RLS pattern confirmed, DB reachable, SSH push verified, log created. Gap-audit workflow running.
@@ -91,3 +94,6 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - 2026-06-27: **W6 shipped** `00f3d1e` (no migration).
 - 2026-06-27: User directive added mid-run → **W15** HubSpot-style UI/UX capstone pass appended to plan (do after feature waves).
 - 2026-06-27: **W8 shipped** `6872787` (migration 16_favorites). Reordered ahead of W7 for UX leverage.
+- 2026-06-27: **W9 shipped** `2a0c4f4` (no migration) — reports dashboard.
+- 2026-06-27: **W10 shipped** `2602d1a` (migration 17_help_center).
+- 2026-06-27: Remaining: W12 web-chat widget, W7 table UX (lite), W11 api/webhooks/audit, W13 teams/routing/hours, W14 RBAC, then **W15 HubSpot UI/UX capstone (mandatory)**. Capstone is protected — will run it even if lower-value waves get cut for time.
