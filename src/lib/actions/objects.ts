@@ -127,6 +127,10 @@ function readValues(
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const f of fields) {
+    if (f.type === "relations") {
+      values[f.key] = formData.getAll(f.key).map(String).filter(Boolean);
+      continue;
+    }
     const raw = formData.get(f.key);
     if (f.type === "boolean") {
       values[f.key] = raw === "on";

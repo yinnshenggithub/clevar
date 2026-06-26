@@ -1,6 +1,6 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
-import { recordTitle, relationTarget, type FieldDefLite } from "./custom-objects";
+import { recordTitle, relationTarget, isRelationType, type FieldDefLite } from "./custom-objects";
 
 export interface RelOption {
   id: string;
@@ -58,12 +58,15 @@ export async function getLinkedRecords(
   const defs = await tx.objectDefinition.findMany({ include: { fields: true } });
   const out: LinkedRecord[] = [];
   for (const def of defs) {
-    const relFields = def.fields.filter((f) => f.type === "relation" && relationTarget(f.options) === targetType);
+    const relFields = def.fields.filter((f) => isRelationType(f.type) && relationTarget(f.options) === targetType);
     if (relFields.length === 0) continue;
     const recs = await tx.customRecord.findMany({ where: { objectDefinitionId: def.id, deletedAt: null }, take: 500 });
     for (const r of recs) {
       const vals = r.values as Record<string, unknown>;
-      const match = relFields.find((f) => vals[f.key] === targetId);
+      const match = relFields.find((f) => {
+        const v = vals[f.key];
+        return Array.isArray(v) ? v.includes(targetId) : v === targetId;
+      });
       if (match) {
         out.push({
           slug: def.slug,

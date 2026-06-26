@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { addField, type FormState } from "@/lib/actions/objects";
-import { FIELD_TYPES, FIELD_TYPE_LABELS, CORE_RELATION_TARGETS, type FieldType } from "@/lib/custom-objects";
+import { FIELD_TYPES, FIELD_TYPE_LABELS, CORE_RELATION_TARGETS, isRelationType, type FieldType } from "@/lib/custom-objects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,7 +43,7 @@ export function FieldForm({
           <Input id="choices" name="choices" placeholder="Lead, Active, Closed" />
         </div>
       )}
-      {type === "relation" && (
+      {isRelationType(type) && (
         <div className="space-y-2">
           <Label htmlFor="relationTarget">Links to</Label>
           <Select id="relationTarget" name="relationTarget" defaultValue="contact">

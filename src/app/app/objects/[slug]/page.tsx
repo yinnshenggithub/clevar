@@ -4,7 +4,7 @@ import { ArrowLeft, Table2 } from "lucide-react";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { deleteField, deleteObjectDefinition } from "@/lib/actions/objects";
-import { FIELD_TYPE_LABELS, relationTarget, type FieldType } from "@/lib/custom-objects";
+import { FIELD_TYPE_LABELS, relationTarget, isRelationType, type FieldType } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { FieldForm } from "@/components/app/field-form";
 import { DeleteButton } from "@/components/app/delete-button";
@@ -63,7 +63,7 @@ export default async function ManageObjectPage({ params }: { params: Promise<{ s
           {def.fields.length > 0 && (
             <ul className="divide-y divide-border rounded-md border border-border">
               {def.fields.map((f) => {
-                const rel = f.type === "relation" ? relationTarget(f.options) : null;
+                const rel = isRelationType(f.type) ? relationTarget(f.options) : null;
                 return (
                   <li key={f.id} className="flex items-center justify-between px-3 py-2">
                     <div>

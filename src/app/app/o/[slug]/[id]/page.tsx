@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateRecord, deleteRecord } from "@/lib/actions/objects";
 import { relationOptions, getLinkedRecords } from "@/lib/object-data";
-import { relationTarget, selectChoices, recordTitle, type FieldDefLite } from "@/lib/custom-objects";
+import { relationTarget, selectChoices, recordTitle, isRelationType, type FieldDefLite } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
@@ -35,7 +35,7 @@ export default async function EditRecordPage({
         type: f.type,
         choices: selectChoices(f.options),
         relOptions:
-          f.type === "relation" && relationTarget(f.options)
+          isRelationType(f.type) && relationTarget(f.options)
             ? await relationOptions(tx, relationTarget(f.options)!)
             : [],
       })),

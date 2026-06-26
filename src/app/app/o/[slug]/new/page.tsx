@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { createRecord } from "@/lib/actions/objects";
 import { relationOptions } from "@/lib/object-data";
-import { relationTarget, selectChoices } from "@/lib/custom-objects";
+import { relationTarget, selectChoices, isRelationType } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,7 +27,7 @@ export default async function NewRecordPage({ params }: { params: Promise<{ slug
         type: f.type,
         choices: selectChoices(f.options),
         relOptions:
-          f.type === "relation" && relationTarget(f.options)
+          isRelationType(f.type) && relationTarget(f.options)
             ? await relationOptions(tx, relationTarget(f.options)!)
             : [],
       })),

@@ -1,4 +1,4 @@
-export const FIELD_TYPES = ["text", "number", "boolean", "date", "select", "relation"] as const;
+export const FIELD_TYPES = ["text", "number", "boolean", "date", "select", "relation", "relations"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
 export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
@@ -7,8 +7,14 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   boolean: "Checkbox",
   date: "Date",
   select: "Select",
-  relation: "Relation (link)",
+  relation: "Relation — single link (one-to-many)",
+  relations: "Relations — many links (many-to-many)",
 };
+
+/** True for both single (`relation`) and multi (`relations`) link types. */
+export function isRelationType(type: string): boolean {
+  return type === "relation" || type === "relations";
+}
 
 export const CORE_RELATION_TARGETS = [
   { value: "contact", label: "Contact" },
