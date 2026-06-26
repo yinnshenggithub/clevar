@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 export interface RecordFieldDef {
   key: string;
@@ -65,20 +66,12 @@ export function RecordForm({
               ))}
             </Select>
           ) : f.type === "relations" ? (
-            <>
-              <select
-                id={f.key}
-                name={f.key}
-                multiple
-                defaultValue={Array.isArray(defaults?.[f.key]) ? (defaults[f.key] as string[]) : []}
-                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                {f.relOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label}</option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">Hold ⌘ / Ctrl to select multiple.</p>
-            </>
+            <MultiSelect
+              name={f.key}
+              options={f.relOptions}
+              defaultValue={Array.isArray(defaults?.[f.key]) ? (defaults[f.key] as string[]) : []}
+              emptyText="No records to link"
+            />
           ) : (
             <Input id={f.key} name={f.key} defaultValue={val(f.key)} />
           )}

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 export interface PipelineOption {
   id: string;
@@ -118,21 +119,8 @@ export function DealForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="contactIds">Contacts</Label>
-        <select
-          id="contactIds"
-          name="contactIds"
-          multiple
-          defaultValue={defaultContactIds}
-          className="flex min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          {contacts.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-muted-foreground">Hold ⌘ / Ctrl to select multiple.</p>
+        <Label>Contacts</Label>
+        <MultiSelect name="contactIds" options={contacts} defaultValue={defaultContactIds} emptyText="No contacts yet" />
       </div>
 
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
