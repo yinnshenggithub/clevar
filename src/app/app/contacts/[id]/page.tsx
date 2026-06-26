@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { ContactForm } from "@/components/app/contact-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
 import { RecordActivity } from "@/components/app/record-activity";
+import { FavoriteButton } from "@/components/app/favorite-button";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -29,7 +30,8 @@ export default async function ContactDetailPage({
       select: { id: true, name: true },
     });
     const linked = await getLinkedRecords(tx, "contact", id);
-    return { contact, companies, linked };
+    const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "contact", entityId: id } });
+    return { contact, companies, linked, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
@@ -41,7 +43,12 @@ export default async function ContactDetailPage({
       <PageHeader
         title={name}
         description="Edit contact details."
-        action={<DeleteButton action={deleteContact.bind(null, id)} label="Delete contact" />}
+        action={
+          <div className="flex items-center gap-2">
+            <FavoriteButton entityType="contact" entityId={id} label={name} href={`/app/contacts/${id}`} initial={data.fav} />
+            <DeleteButton action={deleteContact.bind(null, id)} label="Delete contact" />
+          </div>
+        }
       />
       <Card>
         <CardContent className="pt-6">

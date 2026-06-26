@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { DealForm } from "@/components/app/deal-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
 import { RecordActivity } from "@/components/app/record-activity";
+import { FavoriteButton } from "@/components/app/favorite-button";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,8 +48,10 @@ export default async function DealDetailPage({
     });
     const dc = await tx.dealContact.findMany({ where: { dealId: id }, select: { contactId: true } });
     const linked = await getLinkedRecords(tx, "deal", id);
+    const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "deal", entityId: id } });
     return {
       deal,
+      fav: Boolean(fav),
       pipelines: pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages })),
       companies,
       contacts: contactRows.map((c) => ({
@@ -68,7 +71,12 @@ export default async function DealDetailPage({
       <PageHeader
         title={deal.title}
         description="Edit deal details."
-        action={<DeleteButton action={deleteDeal.bind(null, id)} label="Delete deal" />}
+        action={
+          <div className="flex items-center gap-2">
+            <FavoriteButton entityType="deal" entityId={id} label={deal.title} href={`/app/deals/${id}`} initial={data.fav} />
+            <DeleteButton action={deleteDeal.bind(null, id)} label="Delete deal" />
+          </div>
+        }
       />
       <div className="mb-4">
         <Badge variant={statusVariant(deal.status)}>{deal.status}</Badge>

@@ -69,7 +69,7 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - [x] **W3 — Canned responses + Macros.** CannedResponse (shortcode+body), insert in reply form. Macro (ordered actions) one-click run on a conversation. → `dc5d414`, migration 13. Pages: /app/inbox/canned, /app/inbox/macros.
 - [x] **W4 — Actor metadata + field rules.** created_by/updated_by (Uuid) on Company/Contact/Deal/CustomRecord; CustomFieldDef + `required`, `defaultValue`. Enforce in actions; defaults prefilled. → `269c514`, migration 14. Actor *display* + diffs deferred to W11 (audit). Field-reorder dropped (not core).
 - [x] **W5 — Tasks + activity timeline.** Task model (title, due, status, assignee, parent link). ActivityEvent feed shown on contact/company/deal detail; global /app/tasks page; notes now surfaced on records. → `868ee21`, migration 15. (Custom-record timeline not wired — only core CRM objects.)
-- [ ] **W6 — Field types.** Add currency, multi_select, url, email, phone, rich_text, rating to custom-objects FIELD_TYPES + form inputs + render.
+- [x] **W6 — Field types.** Added currency, multi_select, url, email, phone, rich_text, rating to custom-objects FIELD_TYPES + form inputs + render. → `00f3d1e` (no migration — metadata-driven).
 - [ ] **W7 — Saved views + table UX.** SavedView (object, filters json, sort, group, columns); advanced filter builder, multi-sort, group-by, column show/hide, bulk delete/select on CRM lists + custom objects.
 - [ ] **W8 — Cmd+K + global search + favorites.** Workspace-wide ranked search across objects; command palette; Favorite model + sidebar pins.
 - [ ] **W9 — Reporting + CSAT.** ReportingEvent capture (first response, resolution, reply time); overview/agent/inbox dashboards; CSAT model + metrics. CSV export of reports.
@@ -78,6 +78,7 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - [ ] **W12 — Web chat widget.** Public embeddable widget (JS snippet + iframe/script), public message endpoints, new channelType "webchat" routed into the same inbox; widget appearance settings.
 - [ ] **W13 — Teams + routing + hours.** Team model + membership; auto-assignment (round-robin) on inbound; business hours; auto-resolve idle via Vercel cron.
 - [ ] **W14 — Granular RBAC.** Custom roles + per-object permission matrix; enforce in actions + nav. (Last — highest retrofit risk.)
+- [ ] **W15 — HubSpot-style UI/UX pass (capstone, user-requested 2026-06-27).** After features land, optimize the whole app for HubSpot's latest look + ease of use: consistent app shell/topbar, refined sidebar + nav grouping, card/table/list polish, spacing/typography rhythm, empty states, primary-action affordances, breadcrumbs, mobile smoothness, dark mode parity. Aim: friction-free, demoable, GTM-ready ($100M ARR target). No new data — purely UX/visual + microcopy. Use frontend-design skill; HubSpot cues = airy white surfaces, soft shadows, rounded cards, orange (#FF7A59) primary accent on calm neutrals, clear section headers, generous padding.
 
 ## Progress log
 - 2026-06-27: Prep done — schema read, RLS pattern confirmed, DB reachable, SSH push verified, log created. Gap-audit workflow running.
@@ -87,3 +88,5 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main   # Vercel auto-depl
 - 2026-06-27: **W3 shipped** `dc5d414` (migration 13_canned_macros). Canned edit is delete+recreate for now (acceptable).
 - 2026-06-27: **W4 shipped** `269c514` (migration 14_actor_field_rules).
 - 2026-06-27: **W5 shipped** `868ee21` (migration 15_tasks_activity).
+- 2026-06-27: **W6 shipped** `00f3d1e` (no migration).
+- 2026-06-27: User directive added mid-run → **W15** HubSpot-style UI/UX capstone pass appended to plan (do after feature waves).

@@ -57,6 +57,7 @@ model Workspace {
   conversationLabels ConversationLabel[]
   cannedResponses CannedResponse[]
   macros        Macro[]
+  favorites     Favorite[]
   workflows     Workflow[]
   agentDocuments AgentDocument[]
   objectDefinitions ObjectDefinition[]
@@ -442,6 +443,22 @@ model Workflow {
 
   @@index([workspaceId, triggerType, enabled])
   @@map("workflows")
+}
+
+model Favorite {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  entityType  String    @map("entity_type")
+  entityId    String    @map("entity_id") @db.Uuid
+  label       String
+  href        String
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, entityType, entityId])
+  @@index([workspaceId, userId])
+  @@map("favorites")
 }
 
 model CannedResponse {

@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { CompanyForm } from "@/components/app/company-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
 import { RecordActivity } from "@/components/app/record-activity";
+import { FavoriteButton } from "@/components/app/favorite-button";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -42,7 +43,8 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
       }),
     ]);
     const linked = await getLinkedRecords(tx, "company", id);
-    return { company, contacts, deals, available, linked };
+    const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "company", entityId: id } });
+    return { company, contacts, deals, available, linked, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
@@ -55,6 +57,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         description="Edit company details."
         action={
           <div className="flex items-center gap-2">
+            <FavoriteButton entityType="company" entityId={id} label={company.name} href={`/app/companies/${id}`} initial={data.fav} />
             <Link href={`/app/deals/new?companyId=${id}`}>
               <Button variant="outline" className="gap-2">
                 <Plus className="h-4 w-4" /> New deal

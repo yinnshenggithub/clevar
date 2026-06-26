@@ -4,26 +4,35 @@ import { withTenant } from "@/lib/tenant";
 import { Sidebar } from "@/components/app/sidebar";
 import { MobileNav } from "@/components/app/mobile-nav";
 import { ThemeToggle } from "@/components/app/theme-toggle";
+import { CommandPalette } from "@/components/app/command-palette";
 import { Button } from "@/components/ui/button";
 import { initials } from "@/lib/utils";
 import { LogOut } from "lucide-react";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireAuth();
-  const customObjects = await withTenant(ctx.workspaceId, (tx) =>
-    tx.objectDefinition.findMany({ orderBy: { createdAt: "asc" }, select: { slug: true, namePlural: true } }),
-  ).catch(() => []);
+  const [customObjects, favorites] = await Promise.all([
+    withTenant(ctx.workspaceId, (tx) =>
+      tx.objectDefinition.findMany({ orderBy: { createdAt: "asc" }, select: { slug: true, namePlural: true } }),
+    ).catch(() => []),
+    withTenant(ctx.workspaceId, (tx) =>
+      tx.favorite.findMany({
+        where: { userId: ctx.userId },
+        orderBy: { createdAt: "desc" },
+        take: 12,
+        select: { label: true, href: true },
+      }),
+    ).catch(() => []),
+  ]);
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar workspaceName={ctx.workspace.name} customObjects={customObjects} />
+      <Sidebar workspaceName={ctx.workspace.name} customObjects={customObjects} favorites={favorites} />
       <div className="flex flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 sm:px-6">
-          <div className="flex items-center gap-2">
+        <header className="flex h-16 items-center justify-between gap-3 border-b border-border bg-card px-4 sm:px-6">
+          <div className="flex flex-1 items-center gap-2">
             <MobileNav workspaceName={ctx.workspace.name} customObjects={customObjects} />
-            <div className="text-sm text-muted-foreground">
-              {ctx.workspace.name} · {ctx.role.toLowerCase()}
-            </div>
+            <CommandPalette />
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-sm">
