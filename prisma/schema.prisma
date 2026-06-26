@@ -1,0 +1,211 @@
+// Clevar — multi-tenant CRM data model.
+// Tenant isolation is enforced in Postgres by Row-Level Security (see
+// prisma/migrations/0_init/migration.sql). Every tenant-scoped table carries
+// workspaceId; each request runs inside a transaction that sets
+// `app.workspace_id`, and RLS policies gate every row.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────── Control plane (no RLS) ───────────────────────────
+
+model User {
+  id           String            @id @default(uuid()) @db.Uuid
+  email        String            @unique
+  passwordHash String            @map("password_hash")
+  fullName     String            @map("full_name")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+  memberships  WorkspaceMember[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id          String            @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String            @unique
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+  members     WorkspaceMember[]
+  invitations Invitation[]
+  companies   Company[]
+  contacts    Contact[]
+  pipelines   Pipeline[]
+  stages      Stage[]
+  deals       Deal[]
+  notes       Note[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model Invitation {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  email       String
+  role        WorkspaceRole @default(MEMBER)
+  tokenHash   String        @unique @map("token_hash")
+  expiresAt   DateTime      @map("expires_at") @db.Timestamptz
+  acceptedAt  DateTime?     @map("accepted_at") @db.Timestamptz
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("invitations")
+}
+
+// ─────────────────────────── Tenant plane (RLS) ───────────────────────────────
+
+model Company {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  name         String
+  domain       String?
+  industry     String?
+  customFields Json      @default("{}") @map("custom_fields")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts     Contact[]
+  deals        Deal[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, name])
+  @@map("companies")
+}
+
+model Contact {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  companyId    String?   @map("company_id") @db.Uuid
+  firstName    String?   @map("first_name")
+  lastName     String?   @map("last_name")
+  email        String?
+  phone        String? // normalized E.164, incl. country code
+  jobTitle     String?   @map("job_title")
+  customFields Json      @default("{}") @map("custom_fields")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  company      Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, companyId])
+  @@map("contacts")
+}
+
+model Pipeline {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  name        String
+  isDefault   Boolean   @default(false) @map("is_default")
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  stages      Stage[]
+  deals       Deal[]
+
+  @@index([workspaceId, position])
+  @@map("pipelines")
+}
+
+model Stage {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  pipelineId  String    @map("pipeline_id") @db.Uuid
+  name        String
+  position    Int
+  stageType   StageType @default(OPEN) @map("stage_type")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pipeline    Pipeline  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  deals       Deal[]
+
+  @@index([workspaceId, pipelineId, position])
+  @@map("stages")
+}
+
+model Deal {
+  id              String     @id @default(uuid()) @db.Uuid
+  workspaceId     String     @map("workspace_id") @db.Uuid
+  pipelineId      String     @map("pipeline_id") @db.Uuid
+  stageId         String     @map("stage_id") @db.Uuid
+  companyId       String?    @map("company_id") @db.Uuid
+  title           String
+  amount          Decimal?   @db.Decimal(18, 2)
+  currency        String     @default("USD") @db.Char(3)
+  status          DealStatus @default(OPEN)
+  expectedCloseAt DateTime?  @map("expected_close_at") @db.Date
+  customFields    Json       @default("{}") @map("custom_fields")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pipeline        Pipeline   @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage           Stage      @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  company         Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, pipelineId, stageId])
+  @@index([workspaceId, status])
+  @@map("deals")
+}
+
+model Note {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  parentType  ObjectType @map("parent_type")
+  parentId    String    @map("parent_id") @db.Uuid
+  body        String
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, parentType, parentId, createdAt])
+  @@map("notes")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum StageType {
+  OPEN
+  WON
+  LOST
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum ObjectType {
+  COMPANY
+  CONTACT
+  DEAL
+}

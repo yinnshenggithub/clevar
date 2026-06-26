@@ -13,6 +13,12 @@ build/
 .turbo/
 *.tsbuildinfo
 
+# Next.js
+.next/
+/out/
+next-env.d.ts
+.vercel
+
 # Env & secrets
 .env
 .env.*
