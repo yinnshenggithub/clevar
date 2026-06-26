@@ -3,16 +3,32 @@ import { Plus, Building2, Upload, Download } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { PageHeader } from "@/components/app/page-header";
+import { SearchBar } from "@/components/app/search-bar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
 
-export default async function CompaniesPage() {
+export default async function CompaniesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const ctx = await requireAuth();
+  const query = ((await searchParams).q ?? "").trim();
   const companies = await withTenant(ctx.workspaceId, (tx) =>
     tx.company.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(query
+          ? {
+              OR: [
+                { name: { contains: query, mode: "insensitive" } },
+                { domain: { contains: query, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
       orderBy: { createdAt: "desc" },
       include: { _count: { select: { contacts: true, deals: true } } },
       take: 200,
@@ -44,6 +60,8 @@ export default async function CompaniesPage() {
           </div>
         }
       />
+
+      <SearchBar placeholder="Search companies…" defaultValue={query} />
 
       {companies.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-3 py-16 text-center">

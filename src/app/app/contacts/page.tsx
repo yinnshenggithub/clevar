@@ -3,17 +3,34 @@ import { Plus, Users, Upload, Download } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { PageHeader } from "@/components/app/page-header";
+import { SearchBar } from "@/components/app/search-bar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatPhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
-export default async function ContactsPage() {
+export default async function ContactsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const ctx = await requireAuth();
+  const query = ((await searchParams).q ?? "").trim();
   const contacts = await withTenant(ctx.workspaceId, (tx) =>
     tx.contact.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(query
+          ? {
+              OR: [
+                { firstName: { contains: query, mode: "insensitive" } },
+                { lastName: { contains: query, mode: "insensitive" } },
+                { email: { contains: query, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
       orderBy: { createdAt: "desc" },
       include: { company: { select: { name: true } } },
       take: 200,
@@ -45,6 +62,8 @@ export default async function ContactsPage() {
           </div>
         }
       />
+
+      <SearchBar placeholder="Search contacts…" defaultValue={query} />
 
       {contacts.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-3 py-16 text-center">

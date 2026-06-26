@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/app/page-header";
+import { SearchBar } from "@/components/app/search-bar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ReplyForm } from "@/components/app/reply-form";
@@ -15,14 +16,26 @@ export const dynamic = "force-dynamic";
 export default async function InboxPage({
   searchParams,
 }: {
-  searchParams: Promise<{ c?: string }>;
+  searchParams: Promise<{ c?: string; q?: string }>;
 }) {
-  const { c } = await searchParams;
+  const { c, q } = await searchParams;
+  const query = (q ?? "").trim();
   const ctx = await requireAuth();
 
   const [data, agents, channel] = await Promise.all([
     withTenant(ctx.workspaceId, async (tx) => {
-      const convos = await tx.conversation.findMany({ orderBy: { lastMessageAt: "desc" }, take: 100 });
+      const convos = await tx.conversation.findMany({
+        where: query
+          ? {
+              OR: [
+                { customerName: { contains: query, mode: "insensitive" } },
+                { customerPhone: { contains: query, mode: "insensitive" } },
+              ],
+            }
+          : {},
+        orderBy: { lastMessageAt: "desc" },
+        take: 100,
+      });
       const activeId = c && convos.some((x) => x.id === c) ? c : convos[0]?.id;
       const active = convos.find((x) => x.id === activeId) ?? null;
       const messages = activeId
@@ -68,9 +81,12 @@ export default async function InboxPage({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[300px_1fr]">
         {/* Conversation list */}
         <Card className={cn("overflow-hidden", showThread && c ? "hidden md:block" : "block")}>
+          <div className="p-3 pb-0">
+            <SearchBar placeholder="Search conversations…" defaultValue={query} />
+          </div>
           {data.convos.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
-              No conversations yet. Messages to your number will appear here.
+              {query ? "No conversations match your search." : "No conversations yet. Messages to your number will appear here."}
             </p>
           ) : (
             <ul className="max-h-[calc(100vh-12rem)] divide-y divide-border overflow-y-auto">
