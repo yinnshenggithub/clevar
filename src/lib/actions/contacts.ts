@@ -194,3 +194,32 @@ export async function deleteContact(id: string): Promise<void> {
   revalidatePath("/app/contacts");
   redirect("/app/contacts");
 }
+
+/** Link (or change) a contact's company from the record's aside panel. */
+export async function linkContactCompany(contactId: string, formData: FormData): Promise<void> {
+  const ctx = await requireAuth();
+  const companyId = String(formData.get("targetId") ?? "").trim();
+  if (!companyId) return;
+  await withTenant(ctx.workspaceId, async (tx) => {
+    const company = await tx.company.findFirst({ where: { id: companyId, deletedAt: null }, select: { id: true } });
+    if (!company) return;
+    await tx.contact.update({ where: { id: contactId }, data: { companyId, updatedById: ctx.userId } });
+  });
+  revalidatePath(`/app/contacts/${contactId}`);
+}
+
+/** Link an existing deal to a contact (DealContact join) from the record's aside panel. */
+export async function linkContactDeal(contactId: string, formData: FormData): Promise<void> {
+  const ctx = await requireAuth();
+  const dealId = String(formData.get("targetId") ?? "").trim();
+  if (!dealId) return;
+  await withTenant(ctx.workspaceId, async (tx) => {
+    const deal = await tx.deal.findFirst({ where: { id: dealId, deletedAt: null }, select: { id: true } });
+    if (!deal) return;
+    await tx.dealContact.createMany({
+      data: [{ workspaceId: ctx.workspaceId, dealId, contactId }],
+      skipDuplicates: true,
+    });
+  });
+  revalidatePath(`/app/contacts/${contactId}`);
+}

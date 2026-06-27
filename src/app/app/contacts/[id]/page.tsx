@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { User } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
-import { updateContact, deleteContact } from "@/lib/actions/contacts";
+import { updateContact, deleteContact, linkContactCompany, linkContactDeal } from "@/lib/actions/contacts";
 import { getLinkedRecords, relationOptions } from "@/lib/object-data";
 import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { PageHeader } from "@/components/app/page-header";
 import { ContactForm } from "@/components/app/contact-form";
+import { ContactQuickInfo } from "@/components/app/contact-quick-info";
+import { InlineAddForm } from "@/components/app/inline-add-form";
 import { AssociationsPanel } from "@/components/app/associations-panel";
 import { RecordActivity } from "@/components/app/record-activity";
 import { RecordDetailLayout } from "@/components/app/record-detail-layout";
@@ -37,24 +39,34 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
       ? await tx.company.findFirst({ where: { id: contact.companyId }, select: { id: true, name: true } })
       : null;
     const dc = await tx.dealContact.findMany({ where: { contactId: id }, select: { dealId: true } });
-    const deals = dc.length
+    const linkedDealIds = dc.map((x) => x.dealId);
+    const deals = linkedDealIds.length
       ? await tx.deal.findMany({
-          where: { id: { in: dc.map((x) => x.dealId) }, deletedAt: null },
+          where: { id: { in: linkedDealIds }, deletedAt: null },
           orderBy: { createdAt: "desc" },
           select: { id: true, title: true, status: true },
         })
       : [];
+    // Deals not yet linked to this contact — options for the aside "add deal" picker.
+    const dealOptions = await tx.deal.findMany({
+      where: { deletedAt: null, id: { notIn: linkedDealIds.length ? linkedDealIds : ["00000000-0000-0000-0000-000000000000"] } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: { id: true, title: true },
+    });
     const linked = await getLinkedRecords(tx, "contact", id);
     const assocViews = await getAssociationsFor(tx, "contact", id);
     const addable = await Promise.all(
       (await availableAssociationTypes(tx, "contact")).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
     );
     const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "contact", entityId: id } });
-    return { contact, companies, company, deals, linked, assocViews, addable, fav: Boolean(fav) };
+    return { contact, companies, company, deals, dealOptions, linked, assocViews, addable, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
-  const { contact, companies, company, deals, linked, assocViews, addable } = data;
+  const { contact, companies, company, deals, dealOptions, linked, assocViews, addable } = data;
+  // Companies the contact could be linked to (exclude the current one).
+  const companyOptions = companies.filter((c) => c.id !== contact.companyId);
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Unnamed contact";
 
   return (
@@ -75,13 +87,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           <RecordIdentity
             icon={<User className="h-6 w-6" />}
             title={name}
-            subtitle={contact.email || contact.phone || undefined}
-            facts={[
-              { label: "Email", value: contact.email },
-              { label: "Phone", value: contact.phone },
-              { label: "Job title", value: contact.jobTitle },
-              { label: "Company", value: company ? <Link href={`/app/companies/${company.id}`} className="text-primary hover:underline">{company.name}</Link> : null },
-            ]}
+            extra={<ContactQuickInfo email={contact.email} phone={contact.phone} />}
           />
         }
         about={
@@ -133,6 +139,12 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
               ) : (
                 <RelatedEmpty>Not linked to a company yet.</RelatedEmpty>
               )}
+              <InlineAddForm
+                action={linkContactCompany.bind(null, id)}
+                options={companyOptions.map((c) => ({ id: c.id, label: c.name }))}
+                placeholder={company ? "Change company…" : "Link a company…"}
+                submitLabel={company ? "Change" : "Add"}
+              />
             </RelatedPanel>
 
             <RelatedPanel title="Deals" count={deals.length}>
@@ -147,6 +159,11 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
                   ))}
                 </ul>
               )}
+              <InlineAddForm
+                action={linkContactDeal.bind(null, id)}
+                options={dealOptions.map((d) => ({ id: d.id, label: d.title }))}
+                placeholder="Link a deal…"
+              />
             </RelatedPanel>
 
             {linked.length > 0 && (

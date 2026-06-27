@@ -29,12 +29,15 @@ export function RecordIdentity({
   subtitle,
   facts,
   badge,
+  extra,
 }: {
   icon: ReactNode;
   title: string;
   subtitle?: ReactNode;
   facts?: { label: string; value: ReactNode }[];
   badge?: ReactNode;
+  /** Free-form block rendered below the facts (e.g. label-free contact channels). */
+  extra?: ReactNode;
 }) {
   return (
     <Card>
@@ -59,6 +62,7 @@ export function RecordIdentity({
             ))}
           </dl>
         )}
+        {extra}
       </CardContent>
     </Card>
   );
