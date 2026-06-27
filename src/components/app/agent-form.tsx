@@ -2,10 +2,12 @@
 
 import { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Lock } from "lucide-react";
 import type { FormState } from "@/lib/actions/agents";
 import { MODEL_OPTIONS, DEFAULT_MODEL } from "@/lib/ai-models";
 import { TONE_PRESETS, MODE_PRESETS, STYLE_PRESETS } from "@/lib/agent-presets";
+import { ACTION_DEFS, type AgentActions } from "@/lib/agent-action-defs";
+import { OptimizeButton } from "@/components/app/optimize-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +30,7 @@ export interface AgentDefaults {
   handoffEnabled?: boolean | null;
   handoffUserId?: string | null;
   rules?: Rule[] | null;
+  actions?: AgentActions | null;
 }
 
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
@@ -48,6 +51,7 @@ export function AgentForm({
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, {});
   const router = useRouter();
   const [temp, setTemp] = useState<number>(defaults?.temperature ?? 0.5);
+  const [instructions, setInstructions] = useState<string>(defaults?.instructions ?? "");
   const [rules, setRules] = useState<Rule[]>(
     defaults?.rules && defaults.rules.length
       ? defaults.rules
@@ -56,10 +60,22 @@ export function AgentForm({
   const updateRule = (i: number, patch: Partial<Rule>) =>
     setRules((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
+  const [actions, setActions] = useState<AgentActions>(() => {
+    const init: AgentActions = {};
+    for (const def of ACTION_DEFS) {
+      const d = defaults?.actions?.[def.key];
+      init[def.key] = { enabled: Boolean(d?.enabled), guideline: d?.guideline ?? "" };
+    }
+    return init;
+  });
+  const setAction = (key: string, patch: Partial<{ enabled: boolean; guideline: string }>) =>
+    setActions((a) => ({ ...a, [key]: { ...a[key], ...patch } }));
+
   return (
     <form
       action={(fd) => {
         fd.set("rules", JSON.stringify(rules.filter((r) => r.trigger === "asks_human" || r.keywords.trim())));
+        fd.set("actions", JSON.stringify(actions));
         return formAction(fd);
       }}
       className="max-w-2xl space-y-8"
@@ -146,8 +162,76 @@ export function AgentForm({
           <Textarea id="constraints" name="constraints" rows={3} defaultValue={defaults?.constraints ?? ""} placeholder="Never quote a discount. Never give legal advice. Don't discuss competitors." />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="instructions">Extra instructions / context (advanced)</Label>
-          <Textarea id="instructions" name="instructions" rows={5} defaultValue={defaults?.instructions ?? ""} placeholder="Anything else the agent should know about your business, products, or style." />
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="instructions">Extra instructions / context (advanced)</Label>
+            <OptimizeButton value={instructions} kind="instructions" onResult={setInstructions} />
+          </div>
+          <Textarea
+            id="instructions"
+            name="instructions"
+            rows={5}
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="Anything else the agent should know about your business, products, or style."
+          />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="space-y-4">
+        <div>
+          <SectionTitle>Actions</SectionTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Let the agent take actions during a conversation. Each is only available when enabled; describe in plain
+            language when and how the agent should use it.
+          </p>
+        </div>
+        <div className="space-y-3">
+          {ACTION_DEFS.map((def) => {
+            const a = actions[def.key] ?? { enabled: false, guideline: "" };
+            const on = a.enabled && !def.premium;
+            return (
+              <div key={def.key} className="rounded-lg border border-border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      {def.label}
+                      {def.premium && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                          <Lock className="h-3 w-3" /> Premium
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{def.description}</p>
+                  </div>
+                  <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={a.enabled}
+                      disabled={def.premium}
+                      onChange={(e) => setAction(def.key, { enabled: e.target.checked })}
+                    />
+                    <span className="h-5 w-9 rounded-full bg-input transition-colors peer-checked:bg-primary peer-disabled:opacity-40" />
+                    <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-4" />
+                  </label>
+                </div>
+                {on && (
+                  <div className="mt-3 space-y-2">
+                    <Textarea
+                      rows={2}
+                      value={a.guideline}
+                      onChange={(e) => setAction(def.key, { guideline: e.target.value })}
+                      placeholder={def.placeholder}
+                    />
+                    <div className="flex justify-end">
+                      <OptimizeButton value={a.guideline} kind="guideline" onResult={(t) => setAction(def.key, { guideline: t })} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

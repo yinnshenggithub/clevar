@@ -6,6 +6,28 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { DEFAULT_MODEL } from "@/lib/ai-models";
+import { ACTION_DEFS } from "@/lib/agent-action-defs";
+
+const LIVE_ACTION_KEYS = new Set(ACTION_DEFS.filter((d) => !d.premium).map((d) => d.key));
+
+function parseActions(raw: FormDataEntryValue | null): Record<string, { enabled: boolean; guideline: string }> {
+  try {
+    const obj = JSON.parse(String(raw ?? "{}"));
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+    const out: Record<string, { enabled: boolean; guideline: string }> = {};
+    for (const def of ACTION_DEFS) {
+      const v = obj[def.key];
+      if (!v || typeof v !== "object") continue;
+      out[def.key] = {
+        enabled: Boolean(v.enabled) && LIVE_ACTION_KEYS.has(def.key),
+        guideline: String(v.guideline ?? "").slice(0, 1000),
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
 
 export interface FormState {
   error?: string;
@@ -70,7 +92,11 @@ function readAgent(formData: FormData) {
   });
 }
 
-function agentData(v: z.infer<typeof agentSchema>, rules: RuleInput[]) {
+function agentData(
+  v: z.infer<typeof agentSchema>,
+  rules: RuleInput[],
+  actions: Record<string, { enabled: boolean; guideline: string }>,
+) {
   return {
     name: v.name,
     instructions: v.instructions || "",
@@ -85,6 +111,7 @@ function agentData(v: z.infer<typeof agentSchema>, rules: RuleInput[]) {
     handoffEnabled: v.handoffEnabled ?? true,
     handoffUserId: v.handoffUserId || null,
     rules: rules as object[],
+    actions: actions as object,
   };
 }
 
@@ -94,9 +121,10 @@ export async function createAgent(_prev: FormState, formData: FormData): Promise
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const v = parsed.data;
   const rules = parseRules(formData.get("rules"));
+  const actions = parseActions(formData.get("actions"));
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
-      await tx.aiAgent.create({ data: { workspaceId: ctx.workspaceId, ...agentData(v, rules) } });
+      await tx.aiAgent.create({ data: { workspaceId: ctx.workspaceId, ...agentData(v, rules, actions) } });
     });
   } catch (e) {
     console.error("createAgent failed", e);
@@ -116,9 +144,10 @@ export async function updateAgent(
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const v = parsed.data;
   const rules = parseRules(formData.get("rules"));
+  const actions = parseActions(formData.get("actions"));
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
-      await tx.aiAgent.update({ where: { id }, data: agentData(v, rules) });
+      await tx.aiAgent.update({ where: { id }, data: agentData(v, rules, actions) });
     });
   } catch (e) {
     console.error("updateAgent failed", e);

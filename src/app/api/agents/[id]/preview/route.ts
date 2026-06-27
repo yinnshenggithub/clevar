@@ -1,11 +1,13 @@
 import { streamText, convertToCoreMessages, type Message } from "ai";
 import { getAuthContext } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { prisma } from "@/lib/prisma";
 import { resolveModel } from "@/lib/ai";
 import { MODEL_OPTIONS } from "@/lib/ai-models";
 import { getCredits, creditsForTokens, debitCredits } from "@/lib/credits";
 import { retrieveContext } from "@/lib/knowledge";
 import { buildAgentSystemPrompt, styleMaxTokens, type AgentConfig } from "@/lib/agent-presets";
+import { buildActionTools, type AgentActions } from "@/lib/agent-actions";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -59,12 +61,29 @@ export async function POST(
     handoffEnabled: agent.handoffEnabled,
   };
 
+  // Dry-run action tools: the model can "call" the agent's enabled actions so the
+  // tester shows what it would do, but nothing mutates live data.
+  const actions = (agent.actions && typeof agent.actions === "object" ? agent.actions : {}) as unknown as AgentActions;
+  const [members, labels] = await Promise.all([
+    prisma.workspaceMember.findMany({ where: { workspaceId: ctx.workspaceId }, include: { user: { select: { id: true, fullName: true } } } }),
+    withTenant(ctx.workspaceId, (tx) => tx.label.findMany({ select: { id: true, name: true } })),
+  ]);
+  const { tools } = buildActionTools({
+    workspaceId: ctx.workspaceId,
+    actions,
+    members: members.map((m) => ({ id: m.user.id, name: m.user.fullName })),
+    labels,
+    dryRun: true,
+  });
+  const hasTools = Object.keys(tools).length > 0;
+
   const result = streamText({
     model: resolveModel(model),
     system: buildAgentSystemPrompt(config, context),
     messages: convertToCoreMessages(messages),
     temperature: agent.temperature,
     maxTokens: styleMaxTokens(agent.responseStyle),
+    ...(hasTools ? { tools, maxSteps: 5 } : {}),
     onFinish: async ({ usage }) => {
       try {
         const tokensIn = usage?.promptTokens ?? 0;

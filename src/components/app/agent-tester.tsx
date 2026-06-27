@@ -2,7 +2,7 @@
 
 import { useChat, type Message } from "ai/react";
 import { useEffect, useRef, useState } from "react";
-import { Send, RotateCcw, Zap } from "lucide-react";
+import { Send, RotateCcw, Zap, Settings2 } from "lucide-react";
 import { firstMatchingRule, ruleNote, type AgentRule } from "@/lib/agent-rule-match";
 import { MODEL_OPTIONS } from "@/lib/ai-models";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,10 @@ import { cn } from "@/lib/utils";
 
 function uid() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
+}
+
+function prettyTool(name: string) {
+  return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
 export function AgentTester({
@@ -108,22 +112,40 @@ export function AgentTester({
             Send a message to test the live response from your saved configuration.
           </p>
         )}
-        {messages.map((m) => (
-          <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-            <div
-              className={cn(
-                "max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm",
-                m.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : m.id !== "greeting" && m.content.startsWith("🤝")
-                    ? "border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                    : "bg-secondary text-secondary-foreground",
+        {messages.map((m) => {
+          const tools = m.role === "assistant" ? m.toolInvocations ?? [] : [];
+          return (
+            <div key={m.id} className={cn("flex flex-col gap-1.5", m.role === "user" ? "items-end" : "items-start")}>
+              {tools.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {tools.map((t) => (
+                    <span
+                      key={t.toolCallId}
+                      className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2.5 py-1 text-[11px] font-medium text-violet-700 dark:text-violet-300"
+                    >
+                      <Settings2 className="h-3 w-3" />
+                      {prettyTool(t.toolName)}
+                    </span>
+                  ))}
+                </div>
               )}
-            >
-              {m.content}
+              {m.content && (
+                <div
+                  className={cn(
+                    "max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm",
+                    m.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : m.id !== "greeting" && m.content.startsWith("🤝")
+                        ? "border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                        : "bg-secondary text-secondary-foreground",
+                  )}
+                >
+                  {m.content}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
         {busy && (
           <div className="flex justify-start">
             <div className="rounded-2xl bg-secondary px-4 py-2 text-sm text-muted-foreground">…</div>

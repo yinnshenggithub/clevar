@@ -284,6 +284,7 @@ model AiAgent {
   handoffEnabled Boolean        @default(true) @map("handoff_enabled")
   handoffUserId  String?        @map("handoff_user_id") @db.Uuid
   rules          Json           @default("[]") // [{label, trigger, keywords?, action, note?}]
+  actions        Json           @default("{}") // { close|assign|note|label|contactField: { enabled, guideline } }
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz

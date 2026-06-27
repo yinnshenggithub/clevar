@@ -85,6 +85,7 @@ export default async function AgentDetailPage({
                   handoffEnabled: agent.handoffEnabled,
                   handoffUserId: agent.handoffUserId,
                   rules: Array.isArray(agent.rules) ? (agent.rules as AgentDefaults["rules"]) : [],
+                  actions: (agent.actions ?? {}) as unknown as AgentDefaults["actions"],
                 }}
                 submitLabel="Save changes"
               />
