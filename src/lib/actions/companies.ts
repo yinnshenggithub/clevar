@@ -12,6 +12,7 @@ import { listFields } from "@/lib/objects-registry";
 import { readValues, missingRequired } from "@/lib/field-values";
 import { logEventTx } from "@/lib/activity";
 import { dispatchWebhooks } from "@/lib/webhooks";
+import { runWorkflows } from "@/lib/workflow";
 
 export interface FormState {
   error?: string;
@@ -58,6 +59,11 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
       return c;
     });
     after(() => dispatchWebhooks(ctx.workspaceId, "company.created", { id: created.id, name: v.name }));
+    after(() =>
+      runWorkflows(ctx.workspaceId, "company_created", { companyId: created.id, recordName: v.name, actorId: ctx.userId }).catch((e) =>
+        console.error("company_created workflow failed", e),
+      ),
+    );
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
       return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
@@ -99,6 +105,11 @@ export async function updateCompany(
         },
       });
     });
+    after(() =>
+      runWorkflows(ctx.workspaceId, "company_updated", { companyId: id, recordName: v.name, actorId: ctx.userId }).catch((e) =>
+        console.error("company_updated workflow failed", e),
+      ),
+    );
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
       return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };

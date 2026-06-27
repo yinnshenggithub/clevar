@@ -142,8 +142,9 @@ export async function updateDeal(
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const v = parsed.data;
 
+  let change: { stageName: string; stageChanged: boolean; fromStatus: DealStatus; toStatus: DealStatus } | null = null;
   try {
-    await withTenant(ctx.workspaceId, async (tx) => {
+    change = await withTenant(ctx.workspaceId, async (tx) => {
       const stage = await tx.stage.findFirst({
         where: { id: v.stageId, pipelineId: v.pipelineId },
       });
@@ -152,12 +153,13 @@ export async function updateDeal(
         const company = await tx.company.findFirst({ where: { id: v.companyId, deletedAt: null } });
         if (!company) throw new Error("COMPANY_NOT_FOUND");
       }
-      const existing = await tx.deal.findFirst({ where: { id }, select: { customFields: true } });
+      const existing = await tx.deal.findFirst({ where: { id }, select: { customFields: true, stageId: true, status: true } });
       const fieldDefs = await listFields(tx, "deal");
       const cf = readValues(fieldDefs, formData, false);
       const missing = missingRequired(fieldDefs, cf);
       if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
       const merged = { ...((existing?.customFields as Record<string, unknown>) ?? {}), ...cf };
+      const toStatus = statusForStage[stage.stageType];
       await tx.deal.update({
         where: { id },
         data: {
@@ -166,7 +168,7 @@ export async function updateDeal(
           currency: (v.currency || "USD").toUpperCase(),
           pipelineId: v.pipelineId,
           stageId: v.stageId,
-          status: statusForStage[stage.stageType],
+          status: toStatus,
           companyId: v.companyId || null,
           expectedCloseAt: v.expectedCloseAt ? new Date(v.expectedCloseAt) : null,
           customFields: merged as Prisma.InputJsonValue,
@@ -174,7 +176,18 @@ export async function updateDeal(
         },
       });
       await syncDealContacts(tx, ctx.workspaceId, id, formData.getAll("contactIds").map(String).filter(Boolean));
+      return { stageName: stage.name, stageChanged: existing?.stageId !== v.stageId, fromStatus: existing?.status ?? toStatus, toStatus };
     });
+    const c = change;
+    after(() => runWorkflows(ctx.workspaceId, "deal_updated", { dealId: id, recordName: v.title, actorId: ctx.userId }).catch(() => {}));
+    if (c.stageChanged) {
+      after(() => runWorkflows(ctx.workspaceId, "deal_stage_changed", { dealId: id, stageName: c.stageName, actorId: ctx.userId }).catch(() => {}));
+    }
+    if (c.fromStatus !== c.toStatus) {
+      after(() =>
+        runWorkflows(ctx.workspaceId, "deal_status_changed", { dealId: id, fromStatus: c.fromStatus, toStatus: c.toStatus, status: c.toStatus, actorId: ctx.userId }).catch(() => {}),
+      );
+    }
   } catch (e) {
     if (e instanceof Error && e.message === "STAGE_NOT_FOUND") return { error: "Selected stage was not found." };
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") return { error: "Selected company was not found." };
@@ -190,22 +203,35 @@ export async function updateDeal(
 /** Moves a deal to a stage (used by the board); status follows the stage type. */
 export async function moveDeal(dealId: string, stageId: string): Promise<void> {
   const ctx = await requireAuth();
-  const stageName = await withTenant(ctx.workspaceId, async (tx) => {
+  const moved = await withTenant(ctx.workspaceId, async (tx) => {
     const stage = await tx.stage.findFirst({ where: { id: stageId } });
     if (!stage) throw new Error("STAGE_NOT_FOUND");
+    const existing = await tx.deal.findFirst({ where: { id: dealId }, select: { status: true } });
+    const toStatus = statusForStage[stage.stageType];
     await tx.deal.update({
       where: { id: dealId },
-      data: { stageId, pipelineId: stage.pipelineId, status: statusForStage[stage.stageType] },
+      data: { stageId, pipelineId: stage.pipelineId, status: toStatus },
     });
     await logEventTx(tx, ctx.workspaceId, "DEAL", dealId, "stage_changed", `Moved to ${stage.name}`, ctx.userId);
-    return stage.name;
+    return { stageName: stage.name, fromStatus: existing?.status ?? toStatus, toStatus };
   });
   after(() =>
-    runWorkflows(ctx.workspaceId, "deal_stage_changed", { dealId, stageName }).catch((e) =>
+    runWorkflows(ctx.workspaceId, "deal_stage_changed", { dealId, stageName: moved.stageName, actorId: ctx.userId }).catch((e) =>
       console.error("deal_stage_changed workflow failed", e),
     ),
   );
-  after(() => dispatchWebhooks(ctx.workspaceId, "deal.stage_changed", { id: dealId, stageName }));
+  if (moved.fromStatus !== moved.toStatus) {
+    after(() =>
+      runWorkflows(ctx.workspaceId, "deal_status_changed", {
+        dealId,
+        fromStatus: moved.fromStatus,
+        toStatus: moved.toStatus,
+        status: moved.toStatus,
+        actorId: ctx.userId,
+      }).catch(() => {}),
+    );
+  }
+  after(() => dispatchWebhooks(ctx.workspaceId, "deal.stage_changed", { id: dealId, stageName: moved.stageName }));
   revalidatePath("/app/deals");
 }
 
@@ -224,6 +250,9 @@ export async function bulkDeleteDeals(ids: string[]): Promise<void> {
   await withTenant(ctx.workspaceId, (tx) =>
     tx.deal.updateMany({ where: { id: { in: clean } }, data: { deletedAt: new Date() } }),
   );
+  after(() =>
+    Promise.all(clean.map((id) => runWorkflows(ctx.workspaceId, "deal_deleted", { dealId: id, actorId: ctx.userId }))).catch(() => {}),
+  );
   revalidatePath("/app/deals");
 }
 
@@ -233,6 +262,7 @@ export async function deleteDeal(id: string): Promise<void> {
     await tx.deal.update({ where: { id }, data: { deletedAt: new Date() } });
     await cleanupAssociations(tx, "deal", id);
   });
+  after(() => runWorkflows(ctx.workspaceId, "deal_deleted", { dealId: id, actorId: ctx.userId }).catch(() => {}));
   revalidatePath("/app/deals");
   redirect("/app/deals");
 }

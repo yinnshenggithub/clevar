@@ -157,29 +157,37 @@ export async function updateContact(
     throw e;
   }
 
+  let changedFields: string[] = [];
   try {
-    await withTenant(ctx.workspaceId, async (tx) => {
+    changedFields = await withTenant(ctx.workspaceId, async (tx) => {
       const companyId = await resolveCompany(tx, ctx.workspaceId, v);
-      const existing = await tx.contact.findFirst({ where: { id }, select: { customFields: true } });
+      const existing = await tx.contact.findFirst({
+        where: { id },
+        select: { customFields: true, firstName: true, lastName: true, email: true, phone: true, jobTitle: true, companyId: true },
+      });
       const fieldDefs = await listFields(tx, "contact");
       const cf = readValues(fieldDefs, formData, false);
       const missing = missingRequired(fieldDefs, cf);
       if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
       const merged = { ...((existing?.customFields as Record<string, unknown>) ?? {}), ...cf };
+      const next = { firstName: v.firstName || null, lastName: v.lastName || null, email: v.email || null, phone, jobTitle: v.jobTitle || null, companyId };
+      const changed = (["firstName", "lastName", "email", "phone", "jobTitle", "companyId"] as const).filter(
+        (k) => (existing?.[k] ?? null) !== next[k],
+      );
       await tx.contact.update({
         where: { id },
-        data: {
-          firstName: v.firstName || null,
-          lastName: v.lastName || null,
-          email: v.email || null,
-          phone,
-          jobTitle: v.jobTitle || null,
-          companyId,
-          customFields: merged as Prisma.InputJsonValue,
-          updatedById: ctx.userId,
-        },
+        data: { ...next, customFields: merged as Prisma.InputJsonValue, updatedById: ctx.userId },
       });
+      return [...changed, ...Object.keys(cf)];
     });
+    after(() =>
+      runWorkflows(ctx.workspaceId, "contact_updated", {
+        contactId: id,
+        recordName: [v.firstName, v.lastName].filter(Boolean).join(" ") || v.email || "",
+        changedFields,
+        actorId: ctx.userId,
+      }).catch((e) => console.error("contact_updated workflow failed", e)),
+    );
   } catch (e) {
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") {
       return { error: "Selected company was not found." };
@@ -203,6 +211,11 @@ export async function bulkDeleteContacts(ids: string[]): Promise<void> {
   await withTenant(ctx.workspaceId, (tx) =>
     tx.contact.updateMany({ where: { id: { in: clean } }, data: { deletedAt: new Date() } }),
   );
+  after(() =>
+    Promise.all(clean.map((id) => runWorkflows(ctx.workspaceId, "contact_deleted", { contactId: id, actorId: ctx.userId }))).catch(
+      (e) => console.error("contact_deleted workflow failed", e),
+    ),
+  );
   revalidatePath("/app/contacts");
 }
 
@@ -212,6 +225,11 @@ export async function deleteContact(id: string): Promise<void> {
     await tx.contact.update({ where: { id }, data: { deletedAt: new Date() } });
     await cleanupAssociations(tx, "contact", id);
   });
+  after(() =>
+    runWorkflows(ctx.workspaceId, "contact_deleted", { contactId: id, actorId: ctx.userId }).catch((e) =>
+      console.error("contact_deleted workflow failed", e),
+    ),
+  );
   revalidatePath("/app/contacts");
   redirect("/app/contacts");
 }
@@ -226,6 +244,11 @@ export async function linkContactCompany(contactId: string, formData: FormData):
     if (!company) return;
     await tx.contact.update({ where: { id: contactId }, data: { companyId, updatedById: ctx.userId } });
   });
+  after(() =>
+    runWorkflows(ctx.workspaceId, "contact_updated", { contactId, changedFields: ["companyId"], actorId: ctx.userId }).catch((e) =>
+      console.error("contact_updated workflow failed", e),
+    ),
+  );
   revalidatePath(`/app/contacts/${contactId}`);
 }
 
