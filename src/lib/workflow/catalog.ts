@@ -148,8 +148,8 @@ export const ACTION_META: ActionMeta[] = [
     { name: "amount", label: "Amount", type: "number" },
     { name: "unit", label: "Unit", type: "select", options: opt("minutes", "hours", "days") },
   ] },
-  { token: "if_else", label: "If / else", group: "Internal", controlFlow: true, hidden: true },
-  { token: "split", label: "Split (A/B)", group: "Internal", controlFlow: true, hidden: true },
+  { token: "if_else", label: "If / else (branch)", group: "Internal", controlFlow: true },
+  { token: "split", label: "Split (A/B test)", group: "Internal", controlFlow: true },
   { token: "goto", label: "Go to", group: "Internal", controlFlow: true, hidden: true },
   { token: "set_custom_value", label: "Update custom value", group: "Internal", fields: [
     { name: "key", label: "Key", type: "text" },
