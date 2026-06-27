@@ -92,7 +92,7 @@ export function buildAgentSystemPrompt(agent: AgentConfig, context: string): str
   if (agent.instructions.trim()) b.push(agent.instructions.trim());
 
   if (context) {
-    b.push(`<grounding>Answer factual questions ONLY from <knowledge>. If it isn't there, say you're not sure${agent.handoffEnabled ? " and offer to bring in a teammate" : ""} — never guess or invent.</grounding>`);
+    b.push(`<grounding>Answer factual questions ONLY from <knowledge>. Sources are numbered — cite the source number(s) you used inline like [1]. If <knowledge> doesn't contain the answer, say you don't have that information${agent.handoffEnabled ? " and offer to bring in a teammate" : ""}; never guess, never use outside knowledge, never cite a source you didn't use.</grounding>`);
     b.push(`<knowledge>\n${context}\n</knowledge>`);
   } else {
     b.push(`<grounding>If you don't know or it's outside your scope, say so honestly${agent.handoffEnabled ? " and offer to connect a human teammate" : ""}. Never make up facts.</grounding>`);
