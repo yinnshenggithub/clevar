@@ -1,13 +1,26 @@
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, LogIn, AlertTriangle } from "lucide-react";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { disconnectChannel } from "@/lib/actions/channels";
+import { metaConfigured, tiktokConfigured } from "@/lib/oauth";
 import { PageHeader } from "@/components/app/page-header";
 import { MetaChannelForm, TikTokChannelForm } from "@/components/app/channel-forms";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const OAUTH_MESSAGES: Record<string, string> = {
+  "connected=meta": "Facebook/Instagram connected.",
+  "connected=tiktok": "TikTok connected.",
+  oauth_state: "Connection expired or was tampered with — please try again.",
+  meta_not_configured: "One-click Meta connect isn't enabled on this server yet.",
+  tiktok_not_configured: "One-click TikTok connect isn't enabled on this server yet.",
+  meta_no_pages: "No Facebook Pages were granted. Make sure you selected a Page.",
+  meta_oauth_failed: "Couldn't complete the Facebook connection. Try again.",
+  tiktok_no_advertisers: "No TikTok advertiser accounts were granted.",
+  tiktok_oauth_failed: "Couldn't complete the TikTok connection. Try again.",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +34,21 @@ function Copyable({ label, value }: { label: string; value: string }) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export default async function ChannelsPage() {
+export default async function ChannelsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ connected?: string; error?: string; count?: string }>;
+}) {
   const ctx = await requireAuth();
   const manage = canManageWorkspace(ctx.role);
+  const sp = await searchParams;
+  const metaOauth = metaConfigured();
+  const tiktokOauth = tiktokConfigured();
+  const banner = sp.connected
+    ? { ok: true, text: OAUTH_MESSAGES[`connected=${sp.connected}`] ?? "Connected." }
+    : sp.error
+      ? { ok: false, text: OAUTH_MESSAGES[sp.error] ?? "Something went wrong connecting." }
+      : null;
   const [agents, meta, tiktok] = await Promise.all([
     withTenant(ctx.workspaceId, (tx) => tx.aiAgent.findMany({ where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })),
     prisma.channelConnection.findFirst({ where: { workspaceId: ctx.workspaceId, provider: "meta" } }),
@@ -47,6 +72,15 @@ export default async function ChannelsPage() {
         }
       />
 
+      {banner && (
+        <div
+          className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${banner.ok ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"}`}
+        >
+          {banner.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+          {banner.text}
+        </div>
+      )}
+
       {(meta || tiktok) && (
         <div className="flex flex-wrap gap-2">
           {meta && (
@@ -68,7 +102,28 @@ export default async function ChannelsPage() {
           <CardTitle className="text-base">Facebook &amp; Instagram (Meta)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-3 text-xs text-muted-foreground">
+          {manage && (
+            <div className="rounded-lg border border-border p-3">
+              {metaOauth ? (
+                <>
+                  <a href="/api/oauth/meta">
+                    <Button className="gap-2"><LogIn className="h-4 w-4" /> Connect with Facebook</Button>
+                  </a>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    One click — log in and pick the Page(s) to connect. No developer setup needed.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  One-click connect isn&apos;t enabled on this server yet (admin: set <code>META_APP_ID</code> and{" "}
+                  <code>META_APP_SECRET</code>). You can still connect manually below.
+                </p>
+              )}
+            </div>
+          )}
+          <details className="space-y-2">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Connect manually (advanced)</summary>
+          <div className="mt-3 space-y-2 rounded-lg border border-border bg-secondary/40 p-3 text-xs text-muted-foreground">
             <p className="font-medium text-foreground">Setup</p>
             <ol className="list-decimal space-y-1 pl-4">
               <li>In your Meta app (developers.facebook.com) add the <b>Messenger</b> and <b>Webhooks</b> products and (for IG) <b>Instagram</b>.</li>
@@ -88,6 +143,7 @@ export default async function ChannelsPage() {
           ) : (
             <p className="text-sm text-muted-foreground">Only owners and admins can connect channels.</p>
           )}
+          </details>
           {meta && manage && (
             <form action={disconnectChannel.bind(null, meta.id)}>
               <Button type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10">Disconnect Meta</Button>
@@ -102,7 +158,28 @@ export default async function ChannelsPage() {
           <CardTitle className="text-base">TikTok</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-3 text-xs text-muted-foreground">
+          {manage && (
+            <div className="rounded-lg border border-border p-3">
+              {tiktokOauth ? (
+                <>
+                  <a href="/api/oauth/tiktok">
+                    <Button className="gap-2"><LogIn className="h-4 w-4" /> Connect with TikTok</Button>
+                  </a>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    One click — authorize your advertiser account. No developer setup needed.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  One-click connect isn&apos;t enabled on this server yet (admin: set <code>TIKTOK_APP_ID</code> and{" "}
+                  <code>TIKTOK_APP_SECRET</code>). You can still connect manually below.
+                </p>
+              )}
+            </div>
+          )}
+          <details className="space-y-2">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Connect manually (advanced)</summary>
+          <div className="mt-3 space-y-2 rounded-lg border border-border bg-secondary/40 p-3 text-xs text-muted-foreground">
             <p className="font-medium text-foreground">Setup</p>
             <ol className="list-decimal space-y-1 pl-4">
               <li>In TikTok for Business / Marketing API, create an app and authorize your advertiser account.</li>
@@ -119,6 +196,7 @@ export default async function ChannelsPage() {
           ) : (
             <p className="text-sm text-muted-foreground">Only owners and admins can connect channels.</p>
           )}
+          </details>
           {tiktok && manage && (
             <form action={disconnectChannel.bind(null, tiktok.id)}>
               <Button type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10">Disconnect TikTok</Button>
