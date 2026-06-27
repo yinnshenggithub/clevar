@@ -91,6 +91,115 @@ export async function runWorkflows(
   return { repliedExternally };
 }
 
+/** Compile + run a single workflow from the start with no whole-workflow gate (used by scheduled triggers). */
+async function runOne(workspaceId: string, wf: Workflow, ctx: WorkflowContext): Promise<void> {
+  const instrs = compile(resolveSteps(wf));
+  const out = await execute(workspaceId, instrs, 0, ctx, undefined);
+  if (out.status === "WAITING" && out.resumeAt) await persistWaitingRun(workspaceId, wf.id, out.pc, ctx, out.resumeAt);
+}
+
+/** Parse a scheduled workflow's parameters out of its conditionValue column. */
+function schedParams(wf: Workflow): { days?: number; hours?: number; value?: number } {
+  const raw = wf.conditionValue;
+  if (!raw) return {};
+  try {
+    const j = JSON.parse(raw);
+    if (j && typeof j === "object") return j as { days?: number; hours?: number; value?: number };
+  } catch {
+    /* not JSON */
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? { value: n } : {};
+}
+
+const SCHED_RECORD_CAP = 200;
+
+/**
+ * Fire schedule-driven triggers. Called by /api/cron on every tick.
+ *  - `scheduled`   : runs the workflow once per tick (cadence = the cron schedule).
+ *  - `deal_stale`  : OPEN deals untouched for ≥N days (default 14), once per stale span.
+ *  - `task_reminder`: tasks due within the next N hours (default 24), once per due date.
+ * Idempotency is tracked in the record's customFields (no extra table).
+ */
+export async function runScheduledTriggers(now: Date = new Date()): Promise<{ fired: number }> {
+  let fired = 0;
+  const workspaces = await prisma.workspace.findMany({ select: { id: true } });
+  for (const ws of workspaces) {
+    let workflows: Workflow[] = [];
+    try {
+      workflows = await withTenant(ws.id, (tx) =>
+        tx.workflow.findMany({ where: { enabled: true, triggerType: { in: ["scheduled", "deal_stale", "task_reminder"] } } }),
+      );
+    } catch (e) {
+      console.error("runScheduledTriggers load failed", ws.id, e);
+      continue;
+    }
+    for (const wf of workflows) {
+      try {
+        if (wf.triggerType === "scheduled") {
+          await runOne(ws.id, wf, { vars: {} });
+          fired++;
+          continue;
+        }
+        const p = schedParams(wf);
+        if (wf.triggerType === "deal_stale") {
+          const days = p.days ?? p.value ?? 14;
+          const threshold = new Date(now.getTime() - days * 86_400_000);
+          const markKey = `__wf_stale_${wf.id}`;
+          const deals = await withTenant(ws.id, (tx) =>
+            tx.deal.findMany({
+              where: { status: "OPEN", deletedAt: null, updatedAt: { lte: threshold } },
+              select: { id: true, title: true, updatedAt: true, customFields: true },
+              take: SCHED_RECORD_CAP,
+            }),
+          );
+          for (const d of deals) {
+            const cf = (d.customFields as Record<string, unknown>) ?? {};
+            if (cf[markKey] === d.updatedAt.toISOString()) continue;
+            await runOne(ws.id, wf, { dealId: d.id, recordName: d.title, vars: {} });
+            await withTenant(ws.id, (tx) =>
+              tx.deal.update({ where: { id: d.id }, data: { customFields: { ...cf, [markKey]: d.updatedAt.toISOString() } as Prisma.InputJsonValue } }),
+            );
+            fired++;
+          }
+        } else if (wf.triggerType === "task_reminder") {
+          const hours = p.hours ?? p.value ?? 24;
+          const windowEnd = new Date(now.getTime() + hours * 3_600_000);
+          const markKey = `__wf_reminded_${wf.id}`;
+          const tasks = await withTenant(ws.id, (tx) =>
+            tx.task.findMany({
+              where: { status: { not: "DONE" }, dueAt: { gte: now, lte: windowEnd } },
+              select: { id: true, title: true, dueAt: true, parentType: true, parentId: true, customFields: true },
+              take: SCHED_RECORD_CAP,
+            }),
+          );
+          for (const t of tasks) {
+            const cf = (t.customFields as Record<string, unknown>) ?? {};
+            const due = t.dueAt?.toISOString() ?? "";
+            if (cf[markKey] === due) continue;
+            const parent: Partial<WorkflowContext> =
+              t.parentType === "CONTACT" && t.parentId
+                ? { contactId: t.parentId }
+                : t.parentType === "DEAL" && t.parentId
+                  ? { dealId: t.parentId }
+                  : t.parentType === "COMPANY" && t.parentId
+                    ? { companyId: t.parentId }
+                    : {};
+            await runOne(ws.id, wf, { taskId: t.id, recordName: t.title, ...parent, vars: {} });
+            await withTenant(ws.id, (tx) =>
+              tx.task.update({ where: { id: t.id }, data: { customFields: { ...cf, [markKey]: due } as Prisma.InputJsonValue } }),
+            );
+            fired++;
+          }
+        }
+      } catch (e) {
+        console.error("scheduled trigger failed", wf.id, e);
+      }
+    }
+  }
+  return { fired };
+}
+
 /** Resume one persisted run from its saved program counter. */
 async function resumeRun(workspaceId: string, runId: string, workflowId: string, pc: number, ctx: WorkflowContext): Promise<void> {
   const wf = await withTenant(workspaceId, (tx) => tx.workflow.findFirst({ where: { id: workflowId } }));

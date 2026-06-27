@@ -48,8 +48,7 @@ export const TRIGGER_DEFS: TriggerDef[] = [
   { token: "message_received", label: "Message received", group: "Messaging", fields: ["trigger.messageText", "trigger.customerPhone"] },
 
   // Events / scheduler
-  { token: "scheduled", label: "Scheduler", group: "Events", scheduled: true, hint: "On a recurring schedule" },
-  { token: "date_reminder", label: "Date reminder", group: "Events", scheduled: true, hint: "Birthday / custom date field" },
+  { token: "scheduled", label: "Scheduler", group: "Events", scheduled: true, hint: "Runs on the cron cadence" },
 ];
 
 const BY_TOKEN = new Map(TRIGGER_DEFS.map((t) => [t.token, t]));
