@@ -65,6 +65,8 @@ model Workspace {
   articleCategories ArticleCategory[]
   articles      Article[]
   workflows     Workflow[]
+  workflowRuns  WorkflowRun[]
+  customValues  WorkspaceCustomValue[]
   agentDocuments AgentDocument[]
   objectDefinitions ObjectDefinition[]
   customFieldDefs   CustomFieldDef[]
@@ -138,6 +140,10 @@ model Contact {
   email        String?
   phone        String? // normalized E.164, incl. country code
   jobTitle     String?   @map("job_title")
+  tags            String[]  @default([]) // contact tags (GIN-indexed)
+  ownerId         String?   @map("owner_id") @db.Uuid // assigned workspace member
+  dnd             Boolean   @default(false) // do-not-disturb / messaging opt-out
+  engagementScore Int       @default(0) @map("engagement_score")
   customFields Json      @default("{}") @map("custom_fields")
   createdById  String?   @map("created_by_id") @db.Uuid
   updatedById  String?   @map("updated_by_id") @db.Uuid
@@ -150,6 +156,8 @@ model Contact {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, companyId])
+  @@index([workspaceId, ownerId])
+  @@index([tags], type: Gin)
   @@map("contacts")
 }
 
@@ -555,9 +563,49 @@ model Workflow {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs           WorkflowRun[]
 
   @@index([workspaceId, triggerType, enabled])
   @@map("workflows")
+}
+
+// Durable execution state for a workflow run. Most runs complete inline within
+// the triggering request and are never persisted; a row is written only when a
+// run must survive across requests — e.g. a Wait/Delay step (resumeAt) or a
+// failed run kept for retry. The cron resume route scans WAITING + due rows.
+model WorkflowRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  workflowId  String    @map("workflow_id") @db.Uuid
+  status      String    @default("RUNNING") // RUNNING | WAITING | DONE | FAILED | CANCELLED
+  pc          Int       @default(0) // program counter into the compiled instruction list
+  context     Json      @default("{}") // serialized WorkflowContext + accumulated vars
+  resumeAt    DateTime? @map("resume_at") @db.Timestamptz
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workflow    Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, resumeAt])
+  @@index([workflowId])
+  @@map("workflow_runs")
+}
+
+// Named, workspace-level merge variables ("custom values") usable in templates
+// like {{customValue.businessName}} and writable by the "Update custom value"
+// action.
+model WorkspaceCustomValue {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  key         String
+  value       String    @default("")
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@map("workspace_custom_values")
 }
 
 // Help center content is public-facing, so (like whatsapp_channels) it lives on
