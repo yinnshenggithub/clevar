@@ -3,10 +3,12 @@ import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateRecord, deleteRecord } from "@/lib/actions/objects";
 import { relationOptions, getLinkedRecords } from "@/lib/object-data";
+import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { relationTarget, selectChoices, recordTitle, isRelationType, type FieldDefLite } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
 import { LinkedRecordsCard } from "@/components/app/linked-records-card";
+import { AssociationsPanel } from "@/components/app/associations-panel";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -43,7 +45,11 @@ export default async function EditRecordPage({
       })),
     );
     const linked = await getLinkedRecords(tx, slug, id);
-    return { def, record, fields, linked };
+    const assocViews = await getAssociationsFor(tx, slug, id);
+    const addable = await Promise.all(
+      (await availableAssociationTypes(tx, slug)).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
+    );
+    return { def, record, fields, linked, assocViews, addable };
   });
   if (!data) notFound();
 
@@ -67,6 +73,7 @@ export default async function EditRecordPage({
         </CardContent>
       </Card>
       <LinkedRecordsCard linked={data.linked} />
+      <AssociationsPanel record={{ type: slug, id }} views={data.assocViews} addable={data.addable} />
     </div>
   );
 }

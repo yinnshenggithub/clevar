@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { StageType, DealStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { cleanupAssociations } from "@/lib/associations";
 import { logEventTx } from "@/lib/activity";
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { runWorkflows } from "@/lib/workflow";
@@ -214,6 +215,7 @@ export async function deleteDeal(id: string): Promise<void> {
   const ctx = await requireAuth();
   await withTenant(ctx.workspaceId, async (tx) => {
     await tx.deal.update({ where: { id }, data: { deletedAt: new Date() } });
+    await cleanupAssociations(tx, "deal", id);
   });
   revalidatePath("/app/deals");
   redirect("/app/deals");

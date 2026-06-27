@@ -9,9 +9,11 @@ import {
   addContactToCompany,
   removeContactFromCompany,
 } from "@/lib/actions/companies";
-import { getLinkedRecords } from "@/lib/object-data";
+import { getLinkedRecords, relationOptions } from "@/lib/object-data";
+import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { PageHeader } from "@/components/app/page-header";
 import { CompanyForm } from "@/components/app/company-form";
+import { AssociationsPanel } from "@/components/app/associations-panel";
 import { RecordActivity } from "@/components/app/record-activity";
 import { RecordDetailLayout } from "@/components/app/record-detail-layout";
 import { RecordIdentity, RecordHighlights } from "@/components/app/record-identity";
@@ -46,12 +48,16 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
       }),
     ]);
     const linked = await getLinkedRecords(tx, "company", id);
+    const assocViews = await getAssociationsFor(tx, "company", id);
+    const addable = await Promise.all(
+      (await availableAssociationTypes(tx, "company")).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
+    );
     const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "company", entityId: id } });
-    return { company, contacts, deals, available, linked, fav: Boolean(fav) };
+    return { company, contacts, deals, available, linked, assocViews, addable, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
-  const { company, contacts, deals, available, linked } = data;
+  const { company, contacts, deals, available, linked, assocViews, addable } = data;
 
   return (
     <div className="space-y-6">
@@ -115,6 +121,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         }}
         aside={
           <>
+            <AssociationsPanel record={{ type: "company", id }} views={assocViews} addable={addable} />
             <RelatedPanel title="Contacts" count={contacts.length}>
               <div className="space-y-3">
                 {contacts.length > 0 && (

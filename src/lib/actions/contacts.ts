@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { cleanupAssociations } from "@/lib/associations";
 import { logEventTx } from "@/lib/activity";
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { runWorkflows } from "@/lib/workflow";
@@ -188,6 +189,7 @@ export async function deleteContact(id: string): Promise<void> {
   const ctx = await requireAuth();
   await withTenant(ctx.workspaceId, async (tx) => {
     await tx.contact.update({ where: { id }, data: { deletedAt: new Date() } });
+    await cleanupAssociations(tx, "contact", id);
   });
   revalidatePath("/app/contacts");
   redirect("/app/contacts");

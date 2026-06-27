@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { cleanupAssociations } from "@/lib/associations";
 import { logEventTx } from "@/lib/activity";
 import { dispatchWebhooks } from "@/lib/webhooks";
 
@@ -99,6 +100,7 @@ export async function deleteCompany(id: string): Promise<void> {
   const ctx = await requireAuth();
   await withTenant(ctx.workspaceId, async (tx) => {
     await tx.company.update({ where: { id }, data: { deletedAt: new Date() } });
+    await cleanupAssociations(tx, "company", id);
   });
   revalidatePath("/app/companies");
   redirect("/app/companies");

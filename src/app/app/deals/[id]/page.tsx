@@ -4,9 +4,11 @@ import { Handshake } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateDeal, deleteDeal } from "@/lib/actions/deals";
-import { getLinkedRecords } from "@/lib/object-data";
+import { getLinkedRecords, relationOptions } from "@/lib/object-data";
+import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { PageHeader } from "@/components/app/page-header";
 import { DealForm } from "@/components/app/deal-form";
+import { AssociationsPanel } from "@/components/app/associations-panel";
 import { RecordActivity } from "@/components/app/record-activity";
 import { RecordDetailLayout } from "@/components/app/record-detail-layout";
 import { RecordIdentity, RecordHighlights } from "@/components/app/record-identity";
@@ -67,12 +69,16 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
     const dc = await tx.dealContact.findMany({ where: { dealId: id }, select: { contactId: true } });
     const dcIds = new Set(dc.map((x) => x.contactId));
     const linked = await getLinkedRecords(tx, "deal", id);
+    const assocViews = await getAssociationsFor(tx, "deal", id);
+    const addable = await Promise.all(
+      (await availableAssociationTypes(tx, "deal")).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
+    );
     const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "deal", entityId: id } });
-    return { deal, pls, companies, company, contactRows, dcIds, linked, fav: Boolean(fav) };
+    return { deal, pls, companies, company, contactRows, dcIds, linked, assocViews, addable, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
-  const { deal, pls, companies, company, contactRows, dcIds, linked } = data;
+  const { deal, pls, companies, company, contactRows, dcIds, linked, assocViews, addable } = data;
   const pipelines = pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages }));
   const stageName = pls.flatMap((p) => p.stages).find((s) => s.id === deal.stageId)?.name ?? "—";
   const pipelineName = pls.find((p) => p.id === deal.pipelineId)?.name ?? "—";
@@ -154,6 +160,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
         }}
         aside={
           <>
+            <AssociationsPanel record={{ type: "deal", id }} views={assocViews} addable={addable} />
             <RelatedPanel title="Contacts" count={linkedContacts.length}>
               {linkedContacts.length === 0 ? (
                 <RelatedEmpty>No contacts linked. Add them in “About this deal”.</RelatedEmpty>

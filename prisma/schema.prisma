@@ -69,6 +69,8 @@ model Workspace {
   objectDefinitions ObjectDefinition[]
   customFieldDefs   CustomFieldDef[]
   customRecords     CustomRecord[]
+  associationTypes   AssociationType[]
+  recordAssociations RecordAssociation[]
   dealContacts      DealContact[]
 
   @@map("workspaces")
@@ -744,6 +746,52 @@ model CustomRecord {
 
   @@index([workspaceId, objectDefinitionId, createdAt])
   @@map("custom_records")
+}
+
+// ─────────────── Record associations (polymorphic, tenant plane, RLS) ───────────────
+
+// A workspace-defined relationship kind between two object types. Endpoints are
+// polymorphic object-type tokens ("contact"|"company"|"deal" or a custom slug).
+// Directional (fromObject → toObject); the inverse view derives from inverseLabel.
+model AssociationType {
+  id           String   @id @default(uuid()) @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  fromObject   String   @map("from_object")
+  toObject     String   @map("to_object")
+  label        String
+  inverseLabel String   @map("inverse_label")
+  cardinality  String   @default("many_to_many") // one_to_one | one_to_many | many_to_many
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  associations RecordAssociation[]
+
+  @@unique([workspaceId, fromObject, toObject, label])
+  @@index([workspaceId, fromObject])
+  @@index([workspaceId, toObject])
+  @@map("association_types")
+}
+
+// A single directed edge between two records. Endpoints are not foreign-keyed
+// (they span four heterogeneous tables); integrity is enforced in the app layer
+// + cleanupAssociations + read-time existence checks.
+model RecordAssociation {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  associationTypeId String   @map("association_type_id") @db.Uuid
+  fromType          String   @map("from_type")
+  fromId            String   @map("from_id") @db.Uuid
+  toType            String   @map("to_type")
+  toId              String   @map("to_id") @db.Uuid
+  createdById       String?  @map("created_by_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  associationType   AssociationType @relation(fields: [associationTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([associationTypeId, fromType, fromId, toType, toId])
+  @@index([workspaceId, fromType, fromId])
+  @@index([workspaceId, toType, toId])
+  @@map("record_associations")
 }
 
 enum StageType {

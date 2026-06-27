@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
+import { cleanupAssociations } from "@/lib/associations";
 import { slugify } from "@/lib/utils";
 import { FIELD_TYPES, isRelationType, hasChoices, isMultiValue, supportsDefault } from "@/lib/custom-objects";
 
@@ -35,6 +36,9 @@ export async function createObjectDefinition(_prev: FormState, formData: FormDat
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const slug = slugify(parsed.data.namePlural) || `object-${Date.now().toString(36)}`;
+  if (["contact", "company", "deal"].includes(slug)) {
+    return { error: "That name is reserved. Choose another." };
+  }
   try {
     await withTenant(ctx.workspaceId, (tx) =>
       tx.objectDefinition.create({
@@ -73,7 +77,14 @@ export async function updateObjectDefinition(id: string, formData: FormData): Pr
 export async function deleteObjectDefinition(id: string): Promise<void> {
   const ctx = await requireAuth();
   if (!canManageWorkspace(ctx.role)) return;
-  await withTenant(ctx.workspaceId, (tx) => tx.objectDefinition.delete({ where: { id } }));
+  await withTenant(ctx.workspaceId, async (tx) => {
+    const def = await tx.objectDefinition.findFirst({ where: { id }, select: { slug: true } });
+    if (def) {
+      await tx.recordAssociation.deleteMany({ where: { OR: [{ fromType: def.slug }, { toType: def.slug }] } });
+      await tx.associationType.deleteMany({ where: { OR: [{ fromObject: def.slug }, { toObject: def.slug }] } });
+    }
+    await tx.objectDefinition.delete({ where: { id } });
+  });
   revalidatePath("/app/objects");
   redirect("/app/objects");
 }
@@ -99,7 +110,7 @@ export async function addField(objectDefinitionId: string, _prev: FormState, for
       .filter(Boolean);
     if (choices.length === 0) return { error: "Add at least one choice for this field." };
     options = { choices };
-  } else if (type === "relation") {
+  } else if (isRelationType(type)) {
     const target = String(formData.get("relationTarget") ?? "").trim();
     if (!target) return { error: "Choose what this relation links to." };
     options = { target };
@@ -248,7 +259,10 @@ export async function updateRecord(slug: string, id: string, _prev: FormState, f
 
 export async function deleteRecord(slug: string, id: string): Promise<void> {
   const ctx = await requireAuth();
-  await withTenant(ctx.workspaceId, (tx) => tx.customRecord.update({ where: { id }, data: { deletedAt: new Date() } }));
+  await withTenant(ctx.workspaceId, async (tx) => {
+    await tx.customRecord.update({ where: { id }, data: { deletedAt: new Date() } });
+    await cleanupAssociations(tx, slug, id);
+  });
   revalidatePath(`/app/o/${slug}`);
   redirect(`/app/o/${slug}`);
 }

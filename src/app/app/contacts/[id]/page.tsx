@@ -4,9 +4,11 @@ import { User } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateContact, deleteContact } from "@/lib/actions/contacts";
-import { getLinkedRecords } from "@/lib/object-data";
+import { getLinkedRecords, relationOptions } from "@/lib/object-data";
+import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { PageHeader } from "@/components/app/page-header";
 import { ContactForm } from "@/components/app/contact-form";
+import { AssociationsPanel } from "@/components/app/associations-panel";
 import { RecordActivity } from "@/components/app/record-activity";
 import { RecordDetailLayout } from "@/components/app/record-detail-layout";
 import { RecordIdentity, RecordHighlights } from "@/components/app/record-identity";
@@ -43,12 +45,16 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         })
       : [];
     const linked = await getLinkedRecords(tx, "contact", id);
+    const assocViews = await getAssociationsFor(tx, "contact", id);
+    const addable = await Promise.all(
+      (await availableAssociationTypes(tx, "contact")).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
+    );
     const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "contact", entityId: id } });
-    return { contact, companies, company, deals, linked, fav: Boolean(fav) };
+    return { contact, companies, company, deals, linked, assocViews, addable, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
-  const { contact, companies, company, deals, linked } = data;
+  const { contact, companies, company, deals, linked, assocViews, addable } = data;
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Unnamed contact";
 
   return (
@@ -118,6 +124,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         }}
         aside={
           <>
+            <AssociationsPanel record={{ type: "contact", id }} views={assocViews} addable={addable} />
             <RelatedPanel title="Company" count={company ? 1 : 0}>
               {company ? (
                 <Link href={`/app/companies/${company.id}`} className="text-sm font-medium hover:underline">
