@@ -21,21 +21,14 @@ function prettyTool(name: string) {
 export function AgentTester({
   agentId,
   defaultModel,
-  greeting,
   rules,
 }: {
   agentId: string;
   defaultModel: string;
-  greeting?: string | null;
   rules: AgentRule[];
 }) {
-  const seed: Message[] = greeting?.trim()
-    ? [{ id: "greeting", role: "assistant", content: greeting.trim() }]
-    : [];
-
   const { messages, input, setInput, handleInputChange, append, setMessages, status, error } = useChat({
     api: `/api/agents/${agentId}/preview`,
-    initialMessages: seed,
   });
 
   const [model, setModel] = useState(defaultModel);
@@ -79,7 +72,7 @@ export function AgentTester({
   }
 
   function reset() {
-    setMessages(seed);
+    setMessages([]);
     setInput("");
   }
 

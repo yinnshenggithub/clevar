@@ -13,22 +13,41 @@ export async function retrieveContext(
   limit = 3,
 ): Promise<string> {
   const q = (query || "").trim();
-  if (!q) return "";
   try {
-    const rows = (await withTenant(workspaceId, (tx) =>
-      tx.$queryRaw`
-        SELECT title, content
-        FROM agent_documents
-        WHERE agent_id = ${agentId}::uuid
-          AND to_tsvector('english', title || ' ' || content)
-              @@ websearch_to_tsquery('english', ${q})
-        ORDER BY ts_rank(
-          to_tsvector('english', title || ' ' || content),
-          websearch_to_tsquery('english', ${q})
-        ) DESC
-        LIMIT ${limit}
-      `,
-    )) as { title: string; content: string }[];
+    let rows: { title: string; content: string }[] = [];
+
+    // 1. Full-text ranked match on the message keywords (best relevance).
+    if (q) {
+      rows = (await withTenant(workspaceId, (tx) =>
+        tx.$queryRaw`
+          SELECT title, content
+          FROM agent_documents
+          WHERE agent_id = ${agentId}::uuid
+            AND to_tsvector('english', title || ' ' || content)
+                @@ websearch_to_tsquery('english', ${q})
+          ORDER BY ts_rank(
+            to_tsvector('english', title || ' ' || content),
+            websearch_to_tsquery('english', ${q})
+          ) DESC
+          LIMIT ${limit}
+        `,
+      )) as { title: string; content: string }[];
+    }
+
+    // 2. Fallback: no keyword match (or empty/vague message) — include the most
+    //    recent documents so a small knowledge base is always available to the agent.
+    if (!rows.length) {
+      rows = (await withTenant(workspaceId, (tx) =>
+        tx.$queryRaw`
+          SELECT title, content
+          FROM agent_documents
+          WHERE agent_id = ${agentId}::uuid
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `,
+      )) as { title: string; content: string }[];
+    }
+
     if (!rows.length) return "";
     return rows.map((r) => `# ${r.title}\n${r.content.slice(0, 2000)}`).join("\n\n");
   } catch (e) {

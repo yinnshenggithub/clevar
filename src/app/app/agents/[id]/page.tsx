@@ -145,7 +145,6 @@ export default async function AgentDetailPage({
               <AgentTester
                 agentId={id}
                 defaultModel={agent.model}
-                greeting={agent.greeting}
                 rules={Array.isArray(agent.rules) ? (agent.rules as unknown as AgentRule[]) : []}
               />
             </div>
