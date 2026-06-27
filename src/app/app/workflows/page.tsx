@@ -6,20 +6,13 @@ import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { getTrigger, getActionMeta } from "@/lib/workflow/catalog";
 
 export const dynamic = "force-dynamic";
 
-const TRIGGER_LABEL: Record<string, string> = {
-  message_received: "WhatsApp message received",
-  contact_created: "Contact created",
-  deal_created: "Deal created",
-  deal_stage_changed: "Deal stage changed",
-};
-const ACTION_LABEL: Record<string, string> = {
-  assign_agent: "Assign AI agent",
-  send_reply: "Send WhatsApp reply",
-  add_note: "Add note",
-};
+const triggerLabel = (t: string) => getTrigger(t)?.label ?? t;
+const actionLabel = (t: string) => getActionMeta(t)?.label ?? t;
+const stepCount = (s: unknown) => (Array.isArray(s) ? s.length : 0);
 
 export default async function WorkflowsPage() {
   const ctx = await requireAuth();
@@ -75,8 +68,11 @@ export default async function WorkflowsPage() {
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{TRIGGER_LABEL[w.triggerType] ?? w.triggerType}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{ACTION_LABEL[w.actionType] ?? w.actionType}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{triggerLabel(w.triggerType)}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {actionLabel(w.actionType)}
+                    {stepCount(w.steps) > 1 && <span className="text-xs"> +{stepCount(w.steps) - 1} more</span>}
+                  </td>
                   <td className="px-4 py-3">
                     <Badge variant={w.enabled ? "success" : "secondary"}>{w.enabled ? "Active" : "Off"}</Badge>
                   </td>

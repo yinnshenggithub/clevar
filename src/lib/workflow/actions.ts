@@ -6,17 +6,6 @@ import { sendWhatsAppText } from "../whatsapp";
 import type { ActionContext, ActionHandler, ActionResult } from "./types";
 import { toNumber } from "./template";
 
-export interface ActionDef {
-  token: string;
-  label: string;
-  group: string;
-  /** built but inert until external creds are configured (shown but flagged) */
-  gated?: boolean;
-  /** control-flow nodes are interpreted by the engine, not run as handlers */
-  controlFlow?: boolean;
-  run?: ActionHandler;
-}
-
 const statusForStage: Record<StageType, DealStatus> = { OPEN: "OPEN", WON: "WON", LOST: "LOST" };
 
 /** Pick the ObjectType + id of the record the trigger is about, for notes/tasks/events. */
@@ -406,72 +395,43 @@ const formatArray: ActionHandler = async (config, ac): Promise<ActionResult> => 
 
 const removeFromWorkflow: ActionHandler = async (): Promise<ActionResult> => ({ stop: true });
 
-// ─────────────────────────────── registry ────────────────────────────────────
+// ─────────────────────────── handler registry ────────────────────────────────
+// Maps action tokens (defined in catalog.ts) to their runtime handlers. Control-
+// flow tokens (if_else / split / wait / goto) have no handler — the engine
+// interprets them directly during compilation.
 
-export const ACTION_DEFS: ActionDef[] = [
-  // Contact
-  { token: "create_contact", label: "Create contact", group: "Contact", run: createContact },
-  { token: "find_contact", label: "Find contact", group: "Contact", run: findContact },
-  { token: "update_contact_field", label: "Update contact field", group: "Contact", run: updateContactField },
-  { token: "add_tag", label: "Add contact tag", group: "Contact", run: addTag },
-  { token: "remove_tag", label: "Remove contact tag", group: "Contact", run: removeTag },
-  { token: "assign_user", label: "Assign to user", group: "Contact", run: assignUser },
-  { token: "unassign_user", label: "Remove assigned user", group: "Contact", run: unassignUser },
-  { token: "set_dnd", label: "Enable/disable DND", group: "Contact", run: setDnd },
-  { token: "modify_engagement", label: "Modify engagement score", group: "Contact", run: modifyEngagement },
-  { token: "copy_contact", label: "Copy contact", group: "Contact", run: copyContact },
-  { token: "delete_contact", label: "Delete contact", group: "Contact", run: deleteContact },
+const HANDLERS: Record<string, ActionHandler> = {
+  create_contact: createContact,
+  find_contact: findContact,
+  update_contact_field: updateContactField,
+  add_tag: addTag,
+  remove_tag: removeTag,
+  assign_user: assignUser,
+  unassign_user: unassignUser,
+  set_dnd: setDnd,
+  modify_engagement: modifyEngagement,
+  copy_contact: copyContact,
+  delete_contact: deleteContact,
+  add_task: addTask,
+  add_note: addNote,
+  create_deal: createDeal,
+  move_deal: moveDeal,
+  assign_agent: assignAgent,
+  send_reply: sendWhatsApp,
+  send_whatsapp: sendWhatsApp,
+  set_conversation_status: setConversationStatus,
+  set_conversation_priority: setConversationPriority,
+  assign_conversation_user: assignConversationUser,
+  webhook: callWebhook,
+  set_custom_value: setCustomValue,
+  formatter_text: formatText,
+  formatter_number: formatNumber,
+  formatter_date: formatDate,
+  formatter_array: formatArray,
+  math_operation: mathOperation,
+  remove_from_workflow: removeFromWorkflow,
+};
 
-  // Tasks & notes
-  { token: "add_task", label: "Add task", group: "Tasks & Notes", run: addTask },
-  { token: "add_note", label: "Add to notes", group: "Tasks & Notes", run: addNote },
-
-  // Opportunities
-  { token: "create_deal", label: "Create opportunity", group: "Opportunities", run: createDeal },
-  { token: "move_deal", label: "Move opportunity stage", group: "Opportunities", run: moveDeal },
-
-  // Communication
-  { token: "assign_agent", label: "Assign AI agent (auto-reply)", group: "Communication", run: assignAgent },
-  { token: "send_reply", label: "Send WhatsApp reply", group: "Communication", run: sendWhatsApp },
-  { token: "send_whatsapp", label: "WhatsApp message", group: "Communication", run: sendWhatsApp },
-  { token: "set_conversation_status", label: "Update conversation status", group: "Communication", run: setConversationStatus },
-  { token: "set_conversation_priority", label: "Set conversation priority", group: "Communication", run: setConversationPriority },
-  { token: "assign_conversation_user", label: "Assign conversation to user", group: "Communication", run: assignConversationUser },
-
-  // Send data
-  { token: "webhook", label: "Custom webhook", group: "Send data", run: callWebhook },
-
-  // Internal / control flow + utilities
-  { token: "if_else", label: "If / else", group: "Internal", controlFlow: true },
-  { token: "split", label: "Split (A/B)", group: "Internal", controlFlow: true },
-  { token: "wait", label: "Wait", group: "Internal", controlFlow: true },
-  { token: "goto", label: "Go to", group: "Internal", controlFlow: true },
-  { token: "set_custom_value", label: "Update custom value", group: "Internal", run: setCustomValue },
-  { token: "formatter_text", label: "Text formatter", group: "Internal", run: formatText },
-  { token: "formatter_number", label: "Number formatter", group: "Internal", run: formatNumber },
-  { token: "formatter_date", label: "Date/time formatter", group: "Internal", run: formatDate },
-  { token: "formatter_array", label: "Array formatter", group: "Internal", run: formatArray },
-  { token: "math_operation", label: "Math operation", group: "Internal", run: mathOperation },
-  { token: "remove_from_workflow", label: "Remove from workflow", group: "Internal", run: removeFromWorkflow },
-];
-
-const BY_TOKEN = new Map(ACTION_DEFS.map((a) => [a.token, a]));
-
-export function getAction(token: string): ActionDef | undefined {
-  return BY_TOKEN.get(token);
-}
-export function isAction(token: string): boolean {
-  return BY_TOKEN.has(token);
-}
-export function actionGroups(): { group: string; actions: ActionDef[] }[] {
-  const order: string[] = [];
-  const map = new Map<string, ActionDef[]>();
-  for (const a of ACTION_DEFS) {
-    if (!map.has(a.group)) {
-      map.set(a.group, []);
-      order.push(a.group);
-    }
-    map.get(a.group)!.push(a);
-  }
-  return order.map((group) => ({ group, actions: map.get(group)! }));
+export function getHandler(token: string): ActionHandler | undefined {
+  return HANDLERS[token];
 }

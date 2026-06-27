@@ -1,6 +1,6 @@
 import "server-only";
 import { withTenant } from "../tenant";
-import { getAction } from "./actions";
+import { getHandler } from "./actions";
 import { renderTemplate, evalCondition } from "./template";
 import type { Step, StepCondition, WorkflowContext, Scope } from "./types";
 
@@ -187,10 +187,10 @@ export async function execute(
       continue;
     }
     // action
-    const def = getAction(ins.step.type);
-    if (def?.run) {
+    const run = getHandler(ins.step.type);
+    if (run) {
       try {
-        const res = await def.run(legacyConfig(ins.step), { workspaceId, ctx, scope, render });
+        const res = await run(legacyConfig(ins.step), { workspaceId, ctx, scope, render });
         if (res?.vars) {
           ctx.vars = { ...(ctx.vars ?? {}), ...res.vars };
           scope.vars = ctx.vars;

@@ -7,8 +7,18 @@ import type { Step, StepCondition, WorkflowContext } from "./types";
 
 export type { WorkflowContext } from "./types";
 export type TriggerType = string;
-export { TRIGGER_DEFS, triggerGroups, isTrigger } from "./triggers";
-export { ACTION_DEFS, actionGroups, isAction } from "./actions";
+export {
+  TRIGGER_DEFS,
+  ACTION_META,
+  triggerGroups,
+  actionGroups,
+  isTrigger,
+  isAction,
+  getTrigger,
+  getActionMeta,
+  conditionFieldsFor,
+  CONDITION_OPS,
+} from "./catalog";
 
 /** Parse the stored canvas steps, falling back to the legacy single-action columns. */
 function resolveSteps(wf: Workflow): Step[] {
