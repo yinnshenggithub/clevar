@@ -1,6 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { createDeal } from "@/lib/actions/deals";
+import { buildRecordFields } from "@/lib/object-data";
 import { PageHeader } from "@/components/app/page-header";
 import { DealForm } from "@/components/app/deal-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,11 +38,13 @@ export default async function NewDealPage({
     }));
     // When opened from a company, auto-select that company's contacts.
     const defaultContactIds = companyId ? contactRows.filter((c) => c.companyId === companyId).map((c) => c.id) : [];
+    const customFields = await buildRecordFields(tx, "deal");
     return {
       pipelines: pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages })),
       companies,
       contacts,
       defaultContactIds,
+      customFields,
     };
   });
 
@@ -57,6 +60,7 @@ export default async function NewDealPage({
             contacts={data.contacts}
             defaultContactIds={data.defaultContactIds}
             defaults={companyId ? { companyId } : undefined}
+            customFields={data.customFields}
             submitLabel="Create deal"
           />
         </CardContent>

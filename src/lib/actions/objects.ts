@@ -8,7 +8,27 @@ import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { cleanupAssociations } from "@/lib/associations";
 import { slugify } from "@/lib/utils";
-import { FIELD_TYPES, isRelationType, hasChoices, isMultiValue, supportsDefault } from "@/lib/custom-objects";
+import { FIELD_TYPES, isRelationType, hasChoices, supportsDefault } from "@/lib/custom-objects";
+import { getObjectMeta, isCoreToken } from "@/lib/objects-registry";
+import { readValues, missingRequired } from "@/lib/field-values";
+
+/** Revalidate every page that renders an object's records/fields after a field change. */
+function revalidateForToken(token: string): void {
+  revalidatePath("/app/settings/fields");
+  if (isCoreToken(token)) {
+    const listPath: Record<string, string> = {
+      contact: "/app/contacts",
+      company: "/app/companies",
+      deal: "/app/deals",
+      task: "/app/tasks",
+      note: "/app/contacts",
+    };
+    if (listPath[token]) revalidatePath(listPath[token]);
+  } else {
+    revalidatePath(`/app/objects/${token}`);
+    revalidatePath(`/app/o/${token}`);
+  }
+}
 
 export interface FormState {
   error?: string;
@@ -91,7 +111,28 @@ export async function deleteObjectDefinition(id: string): Promise<void> {
 
 // ── Fields ──────────────────────────────────────────────────────────────────
 
-export async function addField(objectDefinitionId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+/** Parse the field-type-specific `options` block (choices / relation target) from a form. */
+function readFieldOptions(
+  type: string,
+  formData: FormData,
+): { options: Record<string, unknown> } | { error: string } {
+  if (hasChoices(type)) {
+    const choices = String(formData.get("choices") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (choices.length === 0) return { error: "Add at least one choice for this field." };
+    return { options: { choices } };
+  }
+  if (isRelationType(type)) {
+    const target = String(formData.get("relationTarget") ?? "").trim();
+    if (!target) return { error: "Choose what this relation links to." };
+    return { options: { target } };
+  }
+  return { options: {} };
+}
+
+export async function addField(token: string, _prev: FormState, formData: FormData): Promise<FormState> {
   const ctx = await requireAuth();
   if (!canManageWorkspace(ctx.role)) return { error: "Only owners and admins can manage fields." };
 
@@ -102,105 +143,101 @@ export async function addField(objectDefinitionId: string, _prev: FormState, for
   if (!label) return { error: "Field label is required." };
   if (!FIELD_TYPES.includes(type as never)) return { error: "Invalid field type." };
 
-  let options: Record<string, unknown> = {};
-  if (hasChoices(type)) {
-    const choices = String(formData.get("choices") ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (choices.length === 0) return { error: "Add at least one choice for this field." };
-    options = { choices };
-  } else if (isRelationType(type)) {
-    const target = String(formData.get("relationTarget") ?? "").trim();
-    if (!target) return { error: "Choose what this relation links to." };
-    options = { target };
-  }
+  const options = readFieldOptions(type, formData);
+  if ("error" in options) return { error: options.error };
 
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
-      const def = await tx.objectDefinition.findFirst({ where: { id: objectDefinitionId } });
-      if (!def) throw new Error("OBJECT_NOT_FOUND");
-      const count = await tx.customFieldDef.count({ where: { objectDefinitionId } });
+      const meta = await getObjectMeta(tx, token);
+      if (!meta) throw new Error("OBJECT_NOT_FOUND");
+      const key = keyFromLabel(label);
+      if (meta.reservedKeys.includes(key)) throw new Error("RESERVED_KEY");
+      const count = await tx.customFieldDef.count({ where: { objectType: token } });
       await tx.customFieldDef.create({
         data: {
           workspaceId: ctx.workspaceId,
-          objectDefinitionId,
-          key: keyFromLabel(label),
+          objectType: token,
+          objectDefinitionId: meta.objectDefinitionId ?? null,
+          key,
           label,
           type,
           required: isRelationType(type) ? false : required,
           defaultValue: supportsDefault(type) ? defaultValue : null,
-          options: options as Prisma.InputJsonValue,
+          options: options.options as Prisma.InputJsonValue,
           position: count,
         },
       });
-      revalidatePath(`/app/objects/${def.slug}`);
     });
   } catch (e) {
+    if (e instanceof Error && e.message === "RESERVED_KEY") {
+      return { error: "That field name clashes with a built-in field. Pick another label." };
+    }
     console.error("addField failed", e);
-    return { error: "Could not add the field (key may already exist)." };
+    return { error: "Could not add the field (a field with that name may already exist)." };
   }
+  revalidateForToken(token);
   return {};
 }
 
-export async function deleteField(fieldId: string, slug: string): Promise<void> {
+export async function updateField(fieldId: string, token: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  const ctx = await requireAuth();
+  if (!canManageWorkspace(ctx.role)) return { error: "Only owners and admins can manage fields." };
+
+  const label = String(formData.get("label") ?? "").trim();
+  const required = formData.get("required") === "on";
+  const defaultValue = String(formData.get("defaultValue") ?? "").trim() || null;
+  if (!label) return { error: "Field label is required." };
+
+  try {
+    await withTenant(ctx.workspaceId, async (tx) => {
+      const field = await tx.customFieldDef.findFirst({ where: { id: fieldId } });
+      if (!field) throw new Error("FIELD_NOT_FOUND");
+      // Type is immutable post-creation (avoids value migration); re-read options for that type.
+      const options = readFieldOptions(field.type, formData);
+      if ("error" in options) throw new Error(`OPT:${options.error}`);
+      await tx.customFieldDef.update({
+        where: { id: fieldId },
+        data: {
+          label,
+          required: isRelationType(field.type) ? false : required,
+          defaultValue: supportsDefault(field.type) ? defaultValue : null,
+          options: options.options as Prisma.InputJsonValue,
+        },
+      });
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("OPT:")) return { error: e.message.slice(4) };
+    console.error("updateField failed", e);
+    return { error: "Could not update the field." };
+  }
+  revalidateForToken(token);
+  return {};
+}
+
+export async function deleteField(fieldId: string, token: string): Promise<void> {
   const ctx = await requireAuth();
   if (!canManageWorkspace(ctx.role)) return;
   await withTenant(ctx.workspaceId, (tx) => tx.customFieldDef.deleteMany({ where: { id: fieldId } }));
-  revalidatePath(`/app/objects/${slug}`);
+  revalidateForToken(token);
+}
+
+export async function reorderField(fieldId: string, token: string, direction: "up" | "down"): Promise<void> {
+  const ctx = await requireAuth();
+  if (!canManageWorkspace(ctx.role)) return;
+  await withTenant(ctx.workspaceId, async (tx) => {
+    const fields = await tx.customFieldDef.findMany({ where: { objectType: token }, orderBy: { position: "asc" } });
+    const i = fields.findIndex((f) => f.id === fieldId);
+    if (i === -1) return;
+    const j = direction === "up" ? i - 1 : i + 1;
+    if (j < 0 || j >= fields.length) return;
+    // Swap positions of the two neighbours.
+    await tx.customFieldDef.update({ where: { id: fields[i].id }, data: { position: fields[j].position } });
+    await tx.customFieldDef.update({ where: { id: fields[j].id }, data: { position: fields[i].position } });
+  });
+  revalidateForToken(token);
 }
 
 // ── Records ───────────────────────────────────────────────────────────────
-
-type RecordFieldDef = {
-  key: string;
-  type: string;
-  label: string;
-  required: boolean;
-  defaultValue: string | null;
-};
-
-function readValues(
-  fields: RecordFieldDef[],
-  formData: FormData,
-  applyDefaults: boolean,
-): Record<string, unknown> {
-  const values: Record<string, unknown> = {};
-  for (const f of fields) {
-    if (isMultiValue(f.type)) {
-      values[f.key] = formData.getAll(f.key).map(String).filter(Boolean);
-      continue;
-    }
-    const raw = formData.get(f.key);
-    if (f.type === "boolean") {
-      values[f.key] = raw === "on";
-    } else if (f.type === "number" || f.type === "currency" || f.type === "rating") {
-      const n = Number(raw);
-      let v = raw === null || raw === "" || Number.isNaN(n) ? null : n;
-      if (v === null && applyDefaults && f.defaultValue != null && f.defaultValue !== "" && !Number.isNaN(Number(f.defaultValue))) {
-        v = Number(f.defaultValue);
-      }
-      values[f.key] = v;
-    } else {
-      const s = raw == null ? "" : String(raw).trim();
-      values[f.key] = s || (applyDefaults ? f.defaultValue || null : null);
-    }
-  }
-  return values;
-}
-
-/** Labels of required fields left empty, for a friendly validation message. */
-function missingRequired(fields: RecordFieldDef[], values: Record<string, unknown>): string[] {
-  return fields
-    .filter((f) => f.required)
-    .filter((f) => {
-      const v = values[f.key];
-      if (Array.isArray(v)) return v.length === 0;
-      if (typeof v === "boolean") return false;
-      return v == null || v === "";
-    })
-    .map((f) => f.label);
-}
 
 export async function createRecord(slug: string, _prev: FormState, formData: FormData): Promise<FormState> {
   const ctx = await requireAuth();

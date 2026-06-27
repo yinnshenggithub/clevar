@@ -103,7 +103,7 @@ export default async function ManageObjectPage({ params }: { params: Promise<{ s
               })}
             </ul>
           )}
-          <FieldForm objectId={def.id} customTargets={others} />
+          <FieldForm token={def.slug} customTargets={others} />
         </CardContent>
       </Card>
 

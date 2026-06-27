@@ -9,7 +9,7 @@ import {
   addContactToCompany,
   removeContactFromCompany,
 } from "@/lib/actions/companies";
-import { getLinkedRecords, relationOptions } from "@/lib/object-data";
+import { getLinkedRecords, relationOptions, buildRecordFields } from "@/lib/object-data";
 import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { PageHeader } from "@/components/app/page-header";
 import { CompanyForm } from "@/components/app/company-form";
@@ -53,11 +53,12 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
       (await availableAssociationTypes(tx, "company")).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
     );
     const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "company", entityId: id } });
-    return { company, contacts, deals, available, linked, assocViews, addable, fav: Boolean(fav) };
+    const customFields = await buildRecordFields(tx, "company");
+    return { company, contacts, deals, available, linked, assocViews, addable, customFields, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
-  const { company, contacts, deals, available, linked, assocViews, addable } = data;
+  const { company, contacts, deals, available, linked, assocViews, addable, customFields } = data;
 
   return (
     <div className="space-y-6">
@@ -98,6 +99,8 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
               <CompanyForm
                 action={updateCompany.bind(null, id)}
                 defaults={{ name: company.name, domain: company.domain, industry: company.industry }}
+                customFields={customFields}
+                customFieldDefaults={company.customFields as Record<string, unknown>}
                 submitLabel="Save changes"
               />
             </CardContent>

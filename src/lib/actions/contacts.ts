@@ -4,9 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { cleanupAssociations } from "@/lib/associations";
+import { listFields } from "@/lib/objects-registry";
+import { readValues, missingRequired } from "@/lib/field-values";
 import { logEventTx } from "@/lib/activity";
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { runWorkflows } from "@/lib/workflow";
@@ -86,6 +89,10 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
   try {
     const created = await withTenant(ctx.workspaceId, async (tx) => {
       const companyId = await resolveCompany(tx, ctx.workspaceId, v);
+      const fieldDefs = await listFields(tx, "contact");
+      const customFields = readValues(fieldDefs, formData, true);
+      const missing = missingRequired(fieldDefs, customFields);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
       const c = await tx.contact.create({
         data: {
           workspaceId: ctx.workspaceId,
@@ -95,6 +102,7 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
           phone,
           jobTitle: v.jobTitle || null,
           companyId,
+          customFields: customFields as Prisma.InputJsonValue,
           createdById: ctx.userId,
           updatedById: ctx.userId,
         },
@@ -119,6 +127,9 @@ export async function createContact(_prev: FormState, formData: FormData): Promi
   } catch (e) {
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") {
       return { error: "Selected company was not found." };
+    }
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
+      return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
     }
     console.error("createContact failed", e);
     return { error: "Could not save the contact." };
@@ -149,6 +160,12 @@ export async function updateContact(
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
       const companyId = await resolveCompany(tx, ctx.workspaceId, v);
+      const existing = await tx.contact.findFirst({ where: { id }, select: { customFields: true } });
+      const fieldDefs = await listFields(tx, "contact");
+      const cf = readValues(fieldDefs, formData, false);
+      const missing = missingRequired(fieldDefs, cf);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
+      const merged = { ...((existing?.customFields as Record<string, unknown>) ?? {}), ...cf };
       await tx.contact.update({
         where: { id },
         data: {
@@ -158,6 +175,7 @@ export async function updateContact(
           phone,
           jobTitle: v.jobTitle || null,
           companyId,
+          customFields: merged as Prisma.InputJsonValue,
           updatedById: ctx.userId,
         },
       });
@@ -165,6 +183,9 @@ export async function updateContact(
   } catch (e) {
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") {
       return { error: "Selected company was not found." };
+    }
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
+      return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
     }
     console.error("updateContact failed", e);
     return { error: "Could not update the contact." };

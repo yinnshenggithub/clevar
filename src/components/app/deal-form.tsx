@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { CustomFieldset, type RecordFieldDef } from "@/components/app/custom-fieldset";
 
 export interface PipelineOption {
   id: string;
@@ -33,6 +34,8 @@ export function DealForm({
   defaultContactIds = [],
   defaults,
   submitLabel,
+  customFields = [],
+  customFieldDefaults,
 }: {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
   pipelines: PipelineOption[];
@@ -41,6 +44,8 @@ export function DealForm({
   defaultContactIds?: string[];
   defaults?: DealDefaults;
   submitLabel: string;
+  customFields?: RecordFieldDef[];
+  customFieldDefaults?: Record<string, unknown>;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, {});
   const router = useRouter();
@@ -122,6 +127,13 @@ export function DealForm({
         <Label>Contacts</Label>
         <MultiSelect name="contactIds" options={contacts} defaultValue={defaultContactIds} emptyText="No contacts yet" />
       </div>
+
+      {customFields.length > 0 && (
+        <div className="space-y-5 border-t border-border pt-5">
+          <p className="text-sm font-semibold">Custom fields</p>
+          <CustomFieldset fields={customFields} defaults={customFieldDefaults} />
+        </div>
+      )}
 
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 

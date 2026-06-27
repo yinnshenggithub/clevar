@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { CustomFieldset, type RecordFieldDef } from "@/components/app/custom-fieldset";
 
 const PHONE_REGIONS = ["US", "GB", "MY", "SG", "AU", "IN", "CA", "DE", "FR", "AE", "ID", "PH"];
 
@@ -24,11 +25,15 @@ export function ContactForm({
   companies,
   defaults,
   submitLabel,
+  customFields = [],
+  customFieldDefaults,
 }: {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
   companies: { id: string; name: string }[];
   defaults?: ContactDefaults;
   submitLabel: string;
+  customFields?: RecordFieldDef[];
+  customFieldDefaults?: Record<string, unknown>;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, {});
   const router = useRouter();
@@ -84,6 +89,13 @@ export function ContactForm({
         </Select>
         <Input name="newCompanyName" placeholder="…or type a new company to create it" />
       </div>
+
+      {customFields.length > 0 && (
+        <div className="space-y-5 border-t border-border pt-5">
+          <p className="text-sm font-semibold">Custom fields</p>
+          <CustomFieldset fields={customFields} defaults={customFieldDefaults} />
+        </div>
+      )}
 
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 

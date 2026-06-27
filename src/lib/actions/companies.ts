@@ -4,9 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { cleanupAssociations } from "@/lib/associations";
+import { listFields } from "@/lib/objects-registry";
+import { readValues, missingRequired } from "@/lib/field-values";
 import { logEventTx } from "@/lib/activity";
 import { dispatchWebhooks } from "@/lib/webhooks";
 
@@ -36,12 +39,17 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
 
   try {
     const created = await withTenant(ctx.workspaceId, async (tx) => {
+      const fieldDefs = await listFields(tx, "company");
+      const customFields = readValues(fieldDefs, formData, true);
+      const missing = missingRequired(fieldDefs, customFields);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
       const c = await tx.company.create({
         data: {
           workspaceId: ctx.workspaceId,
           name: v.name,
           domain: v.domain || null,
           industry: v.industry || null,
+          customFields: customFields as Prisma.InputJsonValue,
           createdById: ctx.userId,
           updatedById: ctx.userId,
         },
@@ -51,6 +59,9 @@ export async function createCompany(_prev: FormState, formData: FormData): Promi
     });
     after(() => dispatchWebhooks(ctx.workspaceId, "company.created", { id: created.id, name: v.name }));
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
+      return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
+    }
     console.error("createCompany failed", e);
     return { error: "Could not save the company." };
   }
@@ -71,12 +82,27 @@ export async function updateCompany(
 
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
+      const existing = await tx.company.findFirst({ where: { id }, select: { customFields: true } });
+      const fieldDefs = await listFields(tx, "company");
+      const cf = readValues(fieldDefs, formData, false);
+      const missing = missingRequired(fieldDefs, cf);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
+      const merged = { ...((existing?.customFields as Record<string, unknown>) ?? {}), ...cf };
       await tx.company.update({
         where: { id },
-        data: { name: v.name, domain: v.domain || null, industry: v.industry || null, updatedById: ctx.userId },
+        data: {
+          name: v.name,
+          domain: v.domain || null,
+          industry: v.industry || null,
+          customFields: merged as Prisma.InputJsonValue,
+          updatedById: ctx.userId,
+        },
       });
     });
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) {
+      return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
+    }
     console.error("updateCompany failed", e);
     return { error: "Could not update the company." };
   }

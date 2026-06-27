@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { z } from "zod";
-import type { StageType, DealStatus } from "@prisma/client";
+import { Prisma, type StageType, type DealStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { cleanupAssociations } from "@/lib/associations";
+import { listFields } from "@/lib/objects-registry";
+import { readValues, missingRequired } from "@/lib/field-values";
 import { logEventTx } from "@/lib/activity";
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { runWorkflows } from "@/lib/workflow";
@@ -82,6 +84,10 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
         const company = await tx.company.findFirst({ where: { id: v.companyId, deletedAt: null } });
         if (!company) throw new Error("COMPANY_NOT_FOUND");
       }
+      const fieldDefs = await listFields(tx, "deal");
+      const customFields = readValues(fieldDefs, formData, true);
+      const missing = missingRequired(fieldDefs, customFields);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
       const deal = await tx.deal.create({
         data: {
           workspaceId: ctx.workspaceId,
@@ -93,6 +99,7 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
           status: statusForStage[stage.stageType],
           companyId: v.companyId || null,
           expectedCloseAt: v.expectedCloseAt ? new Date(v.expectedCloseAt) : null,
+          customFields: customFields as Prisma.InputJsonValue,
           createdById: ctx.userId,
           updatedById: ctx.userId,
         },
@@ -116,6 +123,7 @@ export async function createDeal(_prev: FormState, formData: FormData): Promise<
   } catch (e) {
     if (e instanceof Error && e.message === "STAGE_NOT_FOUND") return { error: "Selected stage was not found." };
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") return { error: "Selected company was not found." };
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
     console.error("createDeal failed", e);
     return { error: "Could not save the deal." };
   }
@@ -144,6 +152,12 @@ export async function updateDeal(
         const company = await tx.company.findFirst({ where: { id: v.companyId, deletedAt: null } });
         if (!company) throw new Error("COMPANY_NOT_FOUND");
       }
+      const existing = await tx.deal.findFirst({ where: { id }, select: { customFields: true } });
+      const fieldDefs = await listFields(tx, "deal");
+      const cf = readValues(fieldDefs, formData, false);
+      const missing = missingRequired(fieldDefs, cf);
+      if (missing.length > 0) throw new Error(`REQUIRED:${missing.join(", ")}`);
+      const merged = { ...((existing?.customFields as Record<string, unknown>) ?? {}), ...cf };
       await tx.deal.update({
         where: { id },
         data: {
@@ -155,6 +169,7 @@ export async function updateDeal(
           status: statusForStage[stage.stageType],
           companyId: v.companyId || null,
           expectedCloseAt: v.expectedCloseAt ? new Date(v.expectedCloseAt) : null,
+          customFields: merged as Prisma.InputJsonValue,
           updatedById: ctx.userId,
         },
       });
@@ -163,6 +178,7 @@ export async function updateDeal(
   } catch (e) {
     if (e instanceof Error && e.message === "STAGE_NOT_FOUND") return { error: "Selected stage was not found." };
     if (e instanceof Error && e.message === "COMPANY_NOT_FOUND") return { error: "Selected company was not found." };
+    if (e instanceof Error && e.message.startsWith("REQUIRED:")) return { error: `Please fill in: ${e.message.slice("REQUIRED:".length)}` };
     console.error("updateDeal failed", e);
     return { error: "Could not update the deal." };
   }

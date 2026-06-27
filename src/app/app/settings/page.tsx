@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Link2 } from "lucide-react";
+import { Link2, SlidersHorizontal } from "lucide-react";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withTenant } from "@/lib/tenant";
@@ -71,19 +71,34 @@ export default async function SettingsPage() {
       </Card>
 
       {canManage && (
-        <Link href="/app/settings/associations" className="block">
-          <Card className="transition-colors hover:bg-accent/40">
-            <CardContent className="flex items-center gap-3 py-4">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Link2 className="h-4 w-4" />
-              </span>
-              <div>
-                <div className="text-sm font-semibold">Associations</div>
-                <div className="text-xs text-muted-foreground">Define relationship types between records (contacts, companies, deals, custom objects).</div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Link href="/app/settings/properties" className="block">
+            <Card className="h-full transition-colors hover:bg-accent/40">
+              <CardContent className="flex items-center gap-3 py-4">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <SlidersHorizontal className="h-4 w-4" />
+                </span>
+                <div>
+                  <div className="text-sm font-semibold">Properties</div>
+                  <div className="text-xs text-muted-foreground">Add custom fields to contacts, companies, deals, tasks, notes and custom objects.</div>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/app/settings/associations" className="block">
+            <Card className="h-full transition-colors hover:bg-accent/40">
+              <CardContent className="flex items-center gap-3 py-4">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Link2 className="h-4 w-4" />
+                </span>
+                <div>
+                  <div className="text-sm font-semibold">Associations</div>
+                  <div className="text-xs text-muted-foreground">Define relationship types between records (contacts, companies, deals, custom objects).</div>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
       )}
 
       <Card>

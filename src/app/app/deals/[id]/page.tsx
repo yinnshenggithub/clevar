@@ -4,7 +4,7 @@ import { Handshake } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateDeal, deleteDeal } from "@/lib/actions/deals";
-import { getLinkedRecords, relationOptions } from "@/lib/object-data";
+import { getLinkedRecords, relationOptions, buildRecordFields } from "@/lib/object-data";
 import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { PageHeader } from "@/components/app/page-header";
 import { DealForm } from "@/components/app/deal-form";
@@ -74,11 +74,12 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
       (await availableAssociationTypes(tx, "deal")).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
     );
     const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "deal", entityId: id } });
-    return { deal, pls, companies, company, contactRows, dcIds, linked, assocViews, addable, fav: Boolean(fav) };
+    const customFields = await buildRecordFields(tx, "deal");
+    return { deal, pls, companies, company, contactRows, dcIds, linked, assocViews, addable, customFields, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
-  const { deal, pls, companies, company, contactRows, dcIds, linked, assocViews, addable } = data;
+  const { deal, pls, companies, company, contactRows, dcIds, linked, assocViews, addable, customFields } = data;
   const pipelines = pls.map((p) => ({ id: p.id, name: p.name, stages: p.stages }));
   const stageName = pls.flatMap((p) => p.stages).find((s) => s.id === deal.stageId)?.name ?? "—";
   const pipelineName = pls.find((p) => p.id === deal.pipelineId)?.name ?? "—";
@@ -136,6 +137,8 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                   companyId: deal.companyId,
                   expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString().slice(0, 10) : "",
                 }}
+                customFields={customFields}
+                customFieldDefaults={deal.customFields as Record<string, unknown>}
                 submitLabel="Save changes"
               />
             </CardContent>

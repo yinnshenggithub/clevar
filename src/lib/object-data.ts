@@ -1,6 +1,72 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
-import { recordTitle, relationTarget, isRelationType, type FieldDefLite } from "./custom-objects";
+import { recordTitle, relationTarget, selectChoices, isRelationType, formatFieldValue, type FieldDefLite } from "./custom-objects";
+import { listFields } from "./objects-registry";
+
+/** A user-defined field resolved for rendering in a form (choices + relation options inlined). */
+export interface ResolvedField {
+  key: string;
+  label: string;
+  type: string;
+  required: boolean;
+  defaultValue: string | null;
+  choices: string[];
+  relOptions: { id: string; label: string }[];
+}
+
+/** Resolve an object token's custom fields into form-ready field defs. */
+export async function buildRecordFields(tx: Prisma.TransactionClient, token: string): Promise<ResolvedField[]> {
+  const defs = await listFields(tx, token);
+  return Promise.all(
+    defs.map(async (f) => ({
+      key: f.key,
+      label: f.label,
+      type: f.type,
+      required: f.required,
+      defaultValue: f.defaultValue,
+      choices: selectChoices(f.options),
+      relOptions:
+        isRelationType(f.type) && relationTarget(f.options) ? await relationOptions(tx, relationTarget(f.options)!) : [],
+    })),
+  );
+}
+
+/** A custom field's value formatted for read-only display on a detail page. */
+export interface FieldDisplay {
+  key: string;
+  label: string;
+  type: string;
+  display: string;
+}
+
+/** Resolve an object token's custom fields + a record's values into display strings. */
+export async function buildFieldDisplays(
+  tx: Prisma.TransactionClient,
+  token: string,
+  values: Record<string, unknown>,
+): Promise<FieldDisplay[]> {
+  const defs = await listFields(tx, token);
+  const out: FieldDisplay[] = [];
+  for (const f of defs) {
+    let display: string;
+    if (isRelationType(f.type)) {
+      const target = relationTarget(f.options);
+      const opts = target ? await relationOptions(tx, target) : [];
+      const byId = new Map(opts.map((o) => [o.id, o.label]));
+      const val = values[f.key];
+      if (f.type === "relations") {
+        const arr = Array.isArray(val) ? val : [];
+        display = arr.length ? arr.map((id) => byId.get(String(id)) ?? "—").join(", ") : "—";
+      } else {
+        display = val ? byId.get(String(val)) ?? "—" : "—";
+      }
+    } else {
+      display = formatFieldValue(f.type, values[f.key]);
+    }
+    out.push({ key: f.key, label: f.label, type: f.type, display });
+  }
+  return out;
+}
 
 export interface RelOption {
   id: string;

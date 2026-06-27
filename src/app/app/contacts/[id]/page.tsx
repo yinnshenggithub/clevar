@@ -4,7 +4,7 @@ import { User } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { updateContact, deleteContact, linkContactCompany, linkContactDeal } from "@/lib/actions/contacts";
-import { getLinkedRecords, relationOptions } from "@/lib/object-data";
+import { getLinkedRecords, relationOptions, buildRecordFields } from "@/lib/object-data";
 import { getAssociationsFor, availableAssociationTypes } from "@/lib/associations";
 import { PageHeader } from "@/components/app/page-header";
 import { ContactForm } from "@/components/app/contact-form";
@@ -60,11 +60,12 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
       (await availableAssociationTypes(tx, "contact")).map(async (a) => ({ ...a, options: await relationOptions(tx, a.otherObject) })),
     );
     const fav = await tx.favorite.findFirst({ where: { userId: ctx.userId, entityType: "contact", entityId: id } });
-    return { contact, companies, company, deals, dealOptions, linked, assocViews, addable, fav: Boolean(fav) };
+    const customFields = await buildRecordFields(tx, "contact");
+    return { contact, companies, company, deals, dealOptions, linked, assocViews, addable, customFields, fav: Boolean(fav) };
   });
 
   if (!data) notFound();
-  const { contact, companies, company, deals, dealOptions, linked, assocViews, addable } = data;
+  const { contact, companies, company, deals, dealOptions, linked, assocViews, addable, customFields } = data;
   // Companies the contact could be linked to (exclude the current one).
   const companyOptions = companies.filter((c) => c.id !== contact.companyId);
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Unnamed contact";
@@ -107,6 +108,8 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
                   jobTitle: contact.jobTitle,
                   companyId: contact.companyId,
                 }}
+                customFields={customFields}
+                customFieldDefaults={contact.customFields as Record<string, unknown>}
                 submitLabel="Save changes"
               />
             </CardContent>

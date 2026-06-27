@@ -9,14 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
 export function FieldForm({
-  objectId,
+  token,
   customTargets,
 }: {
-  objectId: string;
+  token: string;
   customTargets: { slug: string; nameSingular: string }[];
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(
-    (prev, fd) => addField(objectId, prev, fd),
+    (prev, fd) => addField(token, prev, fd),
     {},
   );
   const [type, setType] = useState<FieldType>("text");

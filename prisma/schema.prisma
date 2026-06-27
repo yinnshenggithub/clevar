@@ -213,13 +213,14 @@ model Deal {
 }
 
 model Note {
-  id          String    @id @default(uuid()) @db.Uuid
-  workspaceId String    @map("workspace_id") @db.Uuid
-  parentType  ObjectType @map("parent_type")
-  parentId    String    @map("parent_id") @db.Uuid
-  body        String
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid()) @db.Uuid
+  workspaceId  String     @map("workspace_id") @db.Uuid
+  parentType   ObjectType @map("parent_type")
+  parentId     String     @map("parent_id") @db.Uuid
+  body         String
+  customFields Json       @default("{}") @map("custom_fields")
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, parentType, parentId, createdAt])
   @@map("notes")
@@ -233,13 +234,14 @@ model Task {
   status      TaskStatus  @default(TODO)
   dueAt       DateTime?   @map("due_at") @db.Timestamptz
   assigneeId  String?     @map("assignee_id") @db.Uuid
-  parentType  ObjectType? @map("parent_type")
-  parentId    String?     @map("parent_id") @db.Uuid
-  createdById String?     @map("created_by_id") @db.Uuid
-  completedAt DateTime?   @map("completed_at") @db.Timestamptz
-  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz
-  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parentType   ObjectType? @map("parent_type")
+  parentId     String?     @map("parent_id") @db.Uuid
+  customFields Json        @default("{}") @map("custom_fields")
+  createdById  String?     @map("created_by_id") @db.Uuid
+  completedAt  DateTime?   @map("completed_at") @db.Timestamptz
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status, dueAt])
   @@index([workspaceId, assigneeId, status])
@@ -732,22 +734,23 @@ model ObjectDefinition {
 }
 
 model CustomFieldDef {
-  id                 String           @id @default(uuid()) @db.Uuid
-  workspaceId        String           @map("workspace_id") @db.Uuid
-  objectDefinitionId String           @map("object_definition_id") @db.Uuid
+  id                 String            @id @default(uuid()) @db.Uuid
+  workspaceId        String            @map("workspace_id") @db.Uuid
+  objectType         String            @map("object_type") // token: contact | company | deal | task | note | <custom slug>
+  objectDefinitionId String?           @map("object_definition_id") @db.Uuid // null for built-in objects
   key                String
   label              String
   type               String // text | number | boolean | date | select | relation
-  required           Boolean          @default(false)
-  defaultValue       String?          @map("default_value")
-  options            Json             @default("{}") // select: { choices: string[] }; relation: { target: string }
-  position           Int              @default(0)
-  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  workspace          Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  objectDefinition   ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
+  required           Boolean           @default(false)
+  defaultValue       String?           @map("default_value")
+  options            Json              @default("{}") // select: { choices: string[] }; relation: { target: string }
+  position           Int               @default(0)
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  objectDefinition   ObjectDefinition? @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
 
-  @@unique([objectDefinitionId, key])
-  @@index([workspaceId, objectDefinitionId, position])
+  @@unique([workspaceId, objectType, key])
+  @@index([workspaceId, objectType, position])
   @@map("custom_field_defs")
 }
 

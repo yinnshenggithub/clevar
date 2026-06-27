@@ -6,6 +6,7 @@ import type { FormState } from "@/lib/actions/companies";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CustomFieldset, type RecordFieldDef } from "@/components/app/custom-fieldset";
 
 export interface CompanyDefaults {
   name?: string | null;
@@ -17,10 +18,14 @@ export function CompanyForm({
   action,
   defaults,
   submitLabel,
+  customFields = [],
+  customFieldDefaults,
 }: {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
   defaults?: CompanyDefaults;
   submitLabel: string;
+  customFields?: RecordFieldDef[];
+  customFieldDefaults?: Record<string, unknown>;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, {});
   const router = useRouter();
@@ -41,6 +46,13 @@ export function CompanyForm({
           <Input id="industry" name="industry" defaultValue={defaults?.industry ?? ""} placeholder="Software" />
         </div>
       </div>
+
+      {customFields.length > 0 && (
+        <div className="space-y-5 border-t border-border pt-5">
+          <p className="text-sm font-semibold">Custom fields</p>
+          <CustomFieldset fields={customFields} defaults={customFieldDefaults} />
+        </div>
+      )}
 
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 
