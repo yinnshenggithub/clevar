@@ -33,46 +33,63 @@ export async function retrieveContext(
   workspaceId: string,
   agentId: string,
   query: string,
-  limit = 3,
+  limit = 6,
 ): Promise<string> {
   const q = (query || "").trim();
   try {
-    let rows: { title: string; content: string }[] = [];
-
-    // 1. Full-text ranked match on the message keywords (best relevance).
+    // ── Chunk retrieval: rank ingestion-time passages, return only the top-k. ──
+    let chunks: { title: string; content: string }[] = [];
     if (q) {
-      rows = (await withTenant(workspaceId, (tx) =>
+      chunks = (await withTenant(workspaceId, (tx) =>
         tx.$queryRaw`
-          SELECT title, content
-          FROM agent_documents
-          WHERE agent_id = ${agentId}::uuid
-            AND to_tsvector('english', title || ' ' || content)
-                @@ websearch_to_tsquery('english', ${q})
-          ORDER BY ts_rank(
-            to_tsvector('english', title || ' ' || content),
-            websearch_to_tsquery('english', ${q})
-          ) DESC
+          SELECT d.title AS title, c.content AS content
+          FROM agent_chunks c
+          JOIN agent_documents d ON d.id = c.document_id
+          WHERE c.agent_id = ${agentId}::uuid
+            AND to_tsvector('english', c.content) @@ websearch_to_tsquery('english', ${q})
+          ORDER BY ts_rank(to_tsvector('english', c.content), websearch_to_tsquery('english', ${q})) DESC
           LIMIT ${limit}
         `,
       )) as { title: string; content: string }[];
     }
-
-    // 2. Fallback: no keyword match (or empty/vague message) — include the most
-    //    recent documents so a small knowledge base is always available to the agent.
-    if (!rows.length) {
-      rows = (await withTenant(workspaceId, (tx) =>
+    // Fallback: no keyword match (or vague message) — earliest chunks of recent docs,
+    // so a small knowledge base is always available.
+    if (!chunks.length) {
+      chunks = (await withTenant(workspaceId, (tx) =>
         tx.$queryRaw`
-          SELECT title, content
-          FROM agent_documents
-          WHERE agent_id = ${agentId}::uuid
-          ORDER BY created_at DESC
+          SELECT d.title AS title, c.content AS content
+          FROM agent_chunks c
+          JOIN agent_documents d ON d.id = c.document_id
+          WHERE c.agent_id = ${agentId}::uuid
+          ORDER BY d.created_at DESC, c.idx ASC
           LIMIT ${limit}
         `,
       )) as { title: string; content: string }[];
     }
+    if (chunks.length) {
+      return chunks.map((c) => `# ${c.title}\n${c.content}`).join("\n\n---\n\n");
+    }
 
-    if (!rows.length) return "";
-    return rows.map((r) => `# ${r.title}\n${bestSnippet(r.content, q)}`).join("\n\n");
+    // ── Legacy fallback: documents that predate chunking (no chunk rows). ──
+    let docs: { title: string; content: string }[] = [];
+    if (q) {
+      docs = (await withTenant(workspaceId, (tx) =>
+        tx.$queryRaw`
+          SELECT title, content FROM agent_documents
+          WHERE agent_id = ${agentId}::uuid
+            AND to_tsvector('english', title || ' ' || content) @@ websearch_to_tsquery('english', ${q})
+          ORDER BY ts_rank(to_tsvector('english', title || ' ' || content), websearch_to_tsquery('english', ${q})) DESC
+          LIMIT 3
+        `,
+      )) as { title: string; content: string }[];
+    }
+    if (!docs.length) {
+      docs = (await withTenant(workspaceId, (tx) =>
+        tx.$queryRaw`SELECT title, content FROM agent_documents WHERE agent_id = ${agentId}::uuid ORDER BY created_at DESC LIMIT 3`,
+      )) as { title: string; content: string }[];
+    }
+    if (!docs.length) return "";
+    return docs.map((d) => `# ${d.title}\n${bestSnippet(d.content, q)}`).join("\n\n");
   } catch (e) {
     console.error("retrieveContext failed", e);
     return "";

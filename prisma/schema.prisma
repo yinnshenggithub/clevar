@@ -71,6 +71,7 @@ model Workspace {
   customRecords     CustomRecord[]
   associationTypes   AssociationType[]
   recordAssociations RecordAssociation[]
+  agentChunks       AgentChunk[]
   dealContacts      DealContact[]
 
   @@map("workspaces")
@@ -307,9 +308,28 @@ model AgentDocument {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   agent       AiAgent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  chunks      AgentChunk[]
 
   @@index([workspaceId, agentId])
   @@map("agent_documents")
+}
+
+// Ingestion-time passages of a document. Retrieval ranks + returns the top-k
+// chunks (small, digestible), never whole documents.
+model AgentChunk {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  agentId     String        @map("agent_id") @db.Uuid
+  documentId  String        @map("document_id") @db.Uuid
+  idx         Int
+  content     String
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document    AgentDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, agentId])
+  @@index([documentId])
+  @@map("agent_chunks")
 }
 
 model WorkspaceCredits {

@@ -5,6 +5,26 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { fetchUrlText } from "@/lib/url-extract";
+import { chunkText } from "@/lib/chunk";
+import type { Prisma } from "@prisma/client";
+
+/** Splits a document's content into passages and stores them for RAG retrieval. */
+async function indexChunks(
+  tx: Prisma.TransactionClient,
+  args: { workspaceId: string; agentId: string; documentId: string; content: string },
+): Promise<void> {
+  const chunks = chunkText(args.content);
+  if (!chunks.length) return;
+  await tx.agentChunk.createMany({
+    data: chunks.map((content, idx) => ({
+      workspaceId: args.workspaceId,
+      agentId: args.agentId,
+      documentId: args.documentId,
+      idx,
+      content,
+    })),
+  });
+}
 
 export interface DocState {
   error?: string;
@@ -30,7 +50,8 @@ export async function addUrlDocument(agentId: string, _prev: DocState, formData:
     await withTenant(ctx.workspaceId, async (tx) => {
       const agent = await tx.aiAgent.findFirst({ where: { id: agentId, deletedAt: null } });
       if (!agent) throw new Error("AGENT_NOT_FOUND");
-      await tx.agentDocument.create({ data: { workspaceId: ctx.workspaceId, agentId, title, content: text } });
+      const doc = await tx.agentDocument.create({ data: { workspaceId: ctx.workspaceId, agentId, title, content: text } });
+      await indexChunks(tx, { workspaceId: ctx.workspaceId, agentId, documentId: doc.id, content: text });
     });
   } catch (e) {
     console.error("addUrlDocument failed", e);
@@ -63,9 +84,10 @@ export async function addDocument(agentId: string, _prev: DocState, formData: Fo
     await withTenant(ctx.workspaceId, async (tx) => {
       const agent = await tx.aiAgent.findFirst({ where: { id: agentId, deletedAt: null } });
       if (!agent) throw new Error("AGENT_NOT_FOUND");
-      await tx.agentDocument.create({
+      const doc = await tx.agentDocument.create({
         data: { workspaceId: ctx.workspaceId, agentId, title: parsed.data.title, content: parsed.data.content },
       });
+      await indexChunks(tx, { workspaceId: ctx.workspaceId, agentId, documentId: doc.id, content: parsed.data.content });
     });
   } catch (e) {
     console.error("addDocument failed", e);
