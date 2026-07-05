@@ -51,6 +51,7 @@ model Workspace {
   aiUsage       AiUsage[]
   credits       WorkspaceCredits?
   whatsappChannels WhatsAppChannel[]
+  waWebChannels WaWebChannel[]
   webWidgets    WebWidget[]
   channelConnections ChannelConnection[]
   apiKeys       ApiKey[]
@@ -423,6 +424,27 @@ model WhatsAppChannel {
   @@map("whatsapp_channels")
 }
 
+// Web-linked WhatsApp numbers paired via the messaging gateway (QR / pairing
+// code). Control-plane (no RLS): gateway events resolve the workspace by
+// sessionName before any tenant context exists.
+model WaWebChannel {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  sessionName      String    @unique @map("session_name")
+  phoneNumber      String?   @map("phone_number") // E.164, learned once paired
+  displayName      String    @default("WhatsApp") @map("display_name")
+  status           String    @default("starting") // starting | scan_qr | working | failed | logged_out | stopped
+  autoReplyAgentId String?   @map("auto_reply_agent_id") @db.Uuid
+  enabled          Boolean   @default(true)
+  lastSeenAt       DateTime? @map("last_seen_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("wa_web_channels")
+}
+
 // Public-facing embeddable chat widget config (control-plane, no RLS — the
 // public loader/chat resolves the workspace by publicKey without a session).
 model WebWidget {
@@ -500,6 +522,9 @@ model Conversation {
   id              String             @id @default(uuid()) @db.Uuid
   workspaceId     String             @map("workspace_id") @db.Uuid
   channelType     String             @default("whatsapp") @map("channel_type")
+  // Which channel row this conversation belongs to (polymorphic across
+  // whatsapp_channels / wa_web_channels / channel_connections; null = legacy).
+  channelId       String?            @map("channel_id") @db.Uuid
   contactId       String?            @map("contact_id") @db.Uuid
   customerPhone   String             @map("customer_phone")
   customerName    String?            @map("customer_name")

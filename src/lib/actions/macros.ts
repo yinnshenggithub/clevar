@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { ConversationStatus, ConversationPriority } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
-import { prisma } from "@/lib/prisma";
-import { sendWhatsAppText } from "@/lib/whatsapp";
+import { resolveConversationTransport, sendWaText } from "@/lib/wa-send";
 
 export interface MacroState {
   error?: string;
@@ -73,19 +72,22 @@ export async function runMacro(macroId: string, conversationId: string): Promise
   if (!macro || !convo) return { error: "Macro or conversation not found." };
   const actions = (Array.isArray(macro.actions) ? macro.actions : []) as unknown as MacroAction[];
 
-  const channel = await prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } });
-
   for (const a of actions) {
     try {
       if (a.type === "send_reply" && a.value) {
-        if (channel) {
-          const waId = await sendWhatsAppText(channel.phoneNumberId, channel.accessToken, convo.customerPhone, a.value);
-          await withTenant(ctx.workspaceId, async (tx) => {
-            await tx.message.create({
-              data: { workspaceId: ctx.workspaceId, conversationId, direction: "OUTBOUND", authorUserId: ctx.userId, body: a.value, type: "text", waMessageId: waId },
+        // Route the reply through the conversation's own channel; other
+        // channel types (webchat, messenger, …) don't support macro sends yet.
+        if (convo.channelType === "whatsapp" || convo.channelType === "whatsapp_web") {
+          const transport = await resolveConversationTransport(ctx.workspaceId, convo);
+          if (transport) {
+            const waId = await sendWaText(transport, convo.customerPhone, a.value);
+            await withTenant(ctx.workspaceId, async (tx) => {
+              await tx.message.create({
+                data: { workspaceId: ctx.workspaceId, conversationId, direction: "OUTBOUND", authorUserId: ctx.userId, body: a.value, type: "text", waMessageId: waId },
+              });
+              await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date(), waitingSince: null } });
             });
-            await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date(), waitingSince: null } });
-          });
+          }
         }
       } else if (a.type === "add_note" && a.value) {
         await withTenant(ctx.workspaceId, (tx) =>

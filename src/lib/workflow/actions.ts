@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma, type ObjectType, type ConversationStatus, type ConversationPriority, type DealStatus, type StageType } from "@prisma/client";
 import { withTenant } from "../tenant";
 import { logEventTx } from "../activity";
-import { sendWhatsAppText } from "../whatsapp";
+import { resolveRefTransport, sendWaText } from "../wa-send";
 import type { ActionContext, ActionHandler, ActionResult } from "./types";
 import { toNumber } from "./template";
 
@@ -263,7 +263,11 @@ const assignConversationUser: ActionHandler = async (config, ac) => {
 const sendWhatsApp: ActionHandler = async (config, ac): Promise<ActionResult> => {
   const text = ac.render(str(config.text)).trim();
   if (!text || !ac.ctx.conversationId || !ac.ctx.channel || !ac.ctx.customerPhone) return {};
-  const waId = await sendWhatsAppText(ac.ctx.channel.phoneNumberId, ac.ctx.channel.accessToken, ac.ctx.customerPhone, text);
+  // ctx.channel is a {kind, id} reference; resolve live credentials at send
+  // time so sends still work when a run resumes after a Wait.
+  const transport = await resolveRefTransport(ac.workspaceId, ac.ctx.channel);
+  if (!transport) return {};
+  const waId = await sendWaText(transport, ac.ctx.customerPhone, text);
   await withTenant(ac.workspaceId, async (tx) => {
     await tx.message.create({
       data: { workspaceId: ac.workspaceId, conversationId: ac.ctx.conversationId!, direction: "OUTBOUND", body: text, waMessageId: waId },

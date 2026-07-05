@@ -5,6 +5,7 @@ import { prisma } from "./prisma";
 import { resolveModel } from "./ai";
 import { getCredits, creditsForTokens, debitCredits } from "./credits";
 import { sendWhatsAppText } from "./whatsapp";
+import { sendGatewayText, phoneToChatId } from "./wa-web";
 import { sendMetaMessage } from "./meta";
 import { retrieveContext } from "./knowledge";
 import { buildAgentSystemPrompt, styleMaxTokens, type AgentConfig } from "./agent-presets";
@@ -86,16 +87,19 @@ async function generateTurn(opts: {
   });
 }
 
-/** Generates an AI reply for a conversation and sends it over WhatsApp, debiting credits. */
-export async function runAgentReply(opts: {
+/**
+ * Shared reply turn: load context, generate, deliver via the channel-specific
+ * callback, persist the OUTBOUND message, debit credits. `deliver` returns the
+ * provider message id (or undefined for persist-only channels like web chat).
+ */
+async function runReplyTurn(opts: {
   workspaceId: string;
-  phoneNumberId: string;
-  accessToken: string;
   conversationId: string;
-  phone: string;
   agentId: string;
+  deliver: (text: string) => Promise<string | undefined>;
+  clearWaiting: boolean;
 }): Promise<void> {
-  const { workspaceId, phoneNumberId, accessToken, conversationId, phone, agentId } = opts;
+  const { workspaceId, conversationId, agentId, deliver, clearWaiting } = opts;
   if (!hasLlmKey()) return;
 
   const data = await loadTurn(workspaceId, conversationId, agentId);
@@ -119,12 +123,15 @@ export async function runAgentReply(opts: {
   });
 
   if (text.trim()) {
-    const waId = await sendWhatsAppText(phoneNumberId, accessToken, phone, text);
+    const externalId = await deliver(text);
     await withTenant(workspaceId, async (tx) => {
       await tx.message.create({
-        data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, waMessageId: waId },
+        data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, type: "text", waMessageId: externalId ?? null },
       });
-      await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date(), ...(clearWaiting ? { waitingSince: null } : {}) },
+      });
     });
   }
 
@@ -133,6 +140,43 @@ export async function runAgentReply(opts: {
     conversationId,
     tokensIn: usage?.promptTokens ?? 0,
     tokensOut: usage?.completionTokens ?? 0,
+  });
+}
+
+/** Generates an AI reply for a conversation and sends it over WhatsApp Cloud API, debiting credits. */
+export async function runAgentReply(opts: {
+  workspaceId: string;
+  phoneNumberId: string;
+  accessToken: string;
+  conversationId: string;
+  phone: string;
+  agentId: string;
+}): Promise<void> {
+  const { workspaceId, phoneNumberId, accessToken, conversationId, phone, agentId } = opts;
+  await runReplyTurn({
+    workspaceId,
+    conversationId,
+    agentId,
+    deliver: (text) => sendWhatsAppText(phoneNumberId, accessToken, phone, text),
+    clearWaiting: false,
+  });
+}
+
+/** AI reply for a web-linked WhatsApp conversation — sends through the messaging gateway. */
+export async function runWaWebAgentReply(opts: {
+  workspaceId: string;
+  conversationId: string;
+  agentId: string;
+  sessionName: string;
+  phone: string;
+}): Promise<void> {
+  const { workspaceId, conversationId, agentId, sessionName, phone } = opts;
+  await runReplyTurn({
+    workspaceId,
+    conversationId,
+    agentId,
+    deliver: (text) => sendGatewayText(sessionName, phoneToChatId(phone), text),
+    clearWaiting: true,
   });
 }
 
@@ -145,41 +189,12 @@ export async function runMetaAgentReply(opts: {
   recipientId: string;
 }): Promise<void> {
   const { workspaceId, conversationId, agentId, pageAccessToken, recipientId } = opts;
-  if (!hasLlmKey()) return;
-
-  const data = await loadTurn(workspaceId, conversationId, agentId);
-  if (!data.agent) return;
-
-  const credits = await getCredits(workspaceId);
-  if (credits.remaining <= 0) return;
-
-  const coreMessages: CoreMessage[] = data.msgs
-    .filter((m) => !m.private)
-    .map((m) => ({ role: m.direction === "INBOUND" ? "user" : "assistant", content: m.body }));
-
-  const { text, usage } = await generateTurn({
+  await runReplyTurn({
     workspaceId,
     conversationId,
-    agent: data.agent,
-    coreMessages,
-    contactId: data.convo?.contactId,
-    members: data.members,
-    labels: data.labels,
-  });
-
-  if (text.trim()) {
-    const mid = await sendMetaMessage(pageAccessToken, recipientId, text);
-    await withTenant(workspaceId, async (tx) => {
-      await tx.message.create({ data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, type: "text", waMessageId: mid } });
-      await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date(), waitingSince: null } });
-    });
-  }
-
-  await debitCredits(workspaceId, creditsForTokens(usage?.totalTokens ?? 0), {
     agentId,
-    conversationId,
-    tokensIn: usage?.promptTokens ?? 0,
-    tokensOut: usage?.completionTokens ?? 0,
+    deliver: (text) => sendMetaMessage(pageAccessToken, recipientId, text),
+    clearWaiting: true,
   });
 }
 
@@ -190,39 +205,11 @@ export async function runWebchatAgentReply(opts: {
   agentId: string;
 }): Promise<void> {
   const { workspaceId, conversationId, agentId } = opts;
-  if (!hasLlmKey()) return;
-
-  const data = await loadTurn(workspaceId, conversationId, agentId);
-  if (!data.agent) return;
-
-  const credits = await getCredits(workspaceId);
-  if (credits.remaining <= 0) return;
-
-  const coreMessages: CoreMessage[] = data.msgs
-    .filter((m) => !m.private)
-    .map((m) => ({ role: m.direction === "INBOUND" ? "user" : "assistant", content: m.body }));
-
-  const { text, usage } = await generateTurn({
+  await runReplyTurn({
     workspaceId,
     conversationId,
-    agent: data.agent,
-    coreMessages,
-    contactId: data.convo?.contactId,
-    members: data.members,
-    labels: data.labels,
-  });
-
-  if (text.trim()) {
-    await withTenant(workspaceId, async (tx) => {
-      await tx.message.create({ data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, type: "text" } });
-      await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date(), waitingSince: null } });
-    });
-  }
-
-  await debitCredits(workspaceId, creditsForTokens(usage?.totalTokens ?? 0), {
     agentId,
-    conversationId,
-    tokensIn: usage?.promptTokens ?? 0,
-    tokensOut: usage?.completionTokens ?? 0,
+    deliver: async () => undefined,
+    clearWaiting: true,
   });
 }

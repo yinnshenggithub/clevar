@@ -4,8 +4,9 @@ import "server-only";
  * Runtime context threaded through a workflow run. Carries the identity of the
  * triggering record(s), the trigger payload, and the engine's working memory
  * (`vars`, populated by formatter / find steps). Persisted verbatim into
- * WorkflowRun.context when a run suspends on a Wait step, so every field must be
- * JSON-serializable — EXCEPT `channel`, which is re-resolved on resume.
+ * WorkflowRun.context when a run suspends on a Wait step, so every field must
+ * be JSON-serializable. `channel` is a {kind, id} reference — credentials are
+ * looked up at send time, which keeps sends working after a Wait resume.
  */
 export interface WorkflowContext {
   // identity of the triggering record(s)
@@ -28,8 +29,8 @@ export interface WorkflowContext {
   tag?: string;
   actorId?: string;
 
-  // messaging send context (not persisted across waits — re-resolved)
-  channel?: { phoneNumberId: string; accessToken: string };
+  // messaging send channel reference; creds resolved at send time
+  channel?: { kind: "whatsapp" | "whatsapp_web"; id: string };
 
   // engine working memory: formatter outputs, find-step results, etc.
   vars?: Record<string, unknown>;

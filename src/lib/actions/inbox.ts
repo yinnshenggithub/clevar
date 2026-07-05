@@ -7,6 +7,8 @@ import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppText, sendWhatsAppMedia, uploadWhatsAppMedia, mediaTypeFromMime } from "@/lib/whatsapp";
+import { sendGatewayText, sendGatewayMedia, phoneToChatId } from "@/lib/wa-web";
+import { resolveConversationTransport } from "@/lib/wa-send";
 import { sendMetaMessage } from "@/lib/meta";
 
 export interface ChannelState {
@@ -144,7 +146,68 @@ export async function replyToConversation(
     return {};
   }
 
-  const channel = await prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } });
+  // Web-linked WhatsApp replies go out through the messaging gateway.
+  if (convo.channelType === "whatsapp_web") {
+    const transport = await resolveConversationTransport(ctx.workspaceId, convo);
+    if (!transport || transport.kind !== "whatsapp_web") {
+      return { error: "This number is no longer linked (Inbox → Channels)." };
+    }
+    let waId: string | undefined;
+    let type = "text";
+    let mediaId: string | null = null;
+    let mediaMime: string | null = null;
+    let mediaFilename: string | null = null;
+    try {
+      if (hasFile) {
+        const f = file as File;
+        if (f.size > 16 * 1024 * 1024) return { error: "File too large (max 16 MB)." };
+        const mime = f.type || "application/octet-stream";
+        type = mediaTypeFromMime(mime);
+        mediaMime = mime;
+        mediaFilename = f.name;
+        waId = await sendGatewayMedia(
+          transport.sessionName,
+          phoneToChatId(convo.customerPhone),
+          { data: Buffer.from(await f.arrayBuffer()), mimetype: mime, filename: f.name },
+          body || undefined,
+        );
+        // Outbound gateway media isn't re-hosted; keep the bubble text-only metadata.
+        mediaId = null;
+      } else {
+        waId = await sendGatewayText(transport.sessionName, phoneToChatId(convo.customerPhone), body);
+      }
+    } catch (e) {
+      // Gateway error bodies can contain internal detail — log, don't surface.
+      console.error("replyToConversation gateway send failed", e);
+      return { error: "Failed to send message. Check the number is still linked (Inbox → Channels)." };
+    }
+    await withTenant(ctx.workspaceId, async (tx) => {
+      await tx.message.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          conversationId,
+          direction: "OUTBOUND",
+          authorUserId: ctx.userId,
+          body: body || (mediaFilename ? `Sent ${mediaFilename}` : ""),
+          type,
+          mediaId,
+          mediaMime,
+          mediaFilename,
+          waMessageId: waId,
+        },
+      });
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date(), waitingSince: null, ...(convo.firstReplyAt ? {} : { firstReplyAt: new Date() }) },
+      });
+    });
+    revalidatePath("/app/inbox");
+    return {};
+  }
+
+  const channel = convo.channelId
+    ? await prisma.whatsAppChannel.findFirst({ where: { id: convo.channelId, workspaceId: ctx.workspaceId } })
+    : await prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } });
   if (!channel) return { error: "Connect a WhatsApp channel first (Inbox → Settings)." };
 
   let waId: string | undefined;

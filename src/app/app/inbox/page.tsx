@@ -46,7 +46,7 @@ export default async function InboxPage({
   const tab = TABS.find((t) => t.key === (s ?? "all")) ?? TABS[0];
   const ctx = await requireAuth();
 
-  const [data, agents, members, allLabels, canned, macros, channel, widget, connection] = await Promise.all([
+  const [data, agents, members, allLabels, canned, macros, channel, widget, connection, waWebChannel] = await Promise.all([
     withTenant(ctx.workspaceId, async (tx) => {
       const where: Prisma.ConversationWhereInput = {
         ...(tab.status ? { status: tab.status } : {}),
@@ -101,19 +101,23 @@ export default async function InboxPage({
     prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } }),
     prisma.webWidget.findFirst({ where: { workspaceId: ctx.workspaceId } }),
     prisma.channelConnection.findFirst({ where: { workspaceId: ctx.workspaceId, enabled: true } }),
+    prisma.waWebChannel.findFirst({ where: { workspaceId: ctx.workspaceId, enabled: true } }),
   ]);
 
   const memberList = members.map((m) => ({ id: m.user.id, name: m.user.fullName }));
   const memberNameById = new Map(memberList.map((m) => [m.id, m.name]));
   const CHANNEL_LABEL: Record<string, string> = {
     whatsapp: "WhatsApp",
+    whatsapp_web: "WhatsApp",
     webchat: "Web chat",
     messenger: "Messenger",
     instagram: "Instagram",
     tiktok: "TikTok",
   };
   const channelDisplay = (cv: { channelType: string; customerPhone: string }) =>
-    cv.channelType === "whatsapp" ? cv.customerPhone : CHANNEL_LABEL[cv.channelType] ?? cv.channelType;
+    cv.channelType === "whatsapp" || cv.channelType === "whatsapp_web"
+      ? cv.customerPhone
+      : CHANNEL_LABEL[cv.channelType] ?? cv.channelType;
   const labelsOf = (cv: { labels: { label: { id: string; name: string; color: string } }[] }) =>
     cv.labels.map((cl) => cl.label);
 
@@ -129,17 +133,17 @@ export default async function InboxPage({
         <Button variant="outline" size="sm">Web widget</Button>
       </Link>
       <Link href="/app/inbox/channels">
-        <Button variant="outline" size="sm">Meta / TikTok</Button>
+        <Button variant="outline" size="sm">Channels</Button>
       </Link>
       <Link href="/app/inbox/settings">
         <Button variant="outline" className="gap-2">
-          <Settings className="h-4 w-4" /> WhatsApp
+          <Settings className="h-4 w-4" /> WhatsApp API
         </Button>
       </Link>
     </div>
   );
 
-  if (!channel && !widget && !connection && data.convos.length === 0) {
+  if (!channel && !widget && !connection && !waWebChannel && data.convos.length === 0) {
     return (
       <div>
         <PageHeader title="Inbox" description="Connect a channel to start receiving messages." action={settingsBtn} />
@@ -147,7 +151,7 @@ export default async function InboxPage({
           <MessageSquare className="h-10 w-10 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No channels connected yet.</p>
           <div className="flex flex-wrap justify-center gap-2">
-            <Link href="/app/inbox/settings">
+            <Link href="/app/inbox/channels">
               <Button>Connect WhatsApp</Button>
             </Link>
             <Link href="/app/inbox/channels">
@@ -317,7 +321,7 @@ export default async function InboxPage({
 
               <div className="flex-1 space-y-3 overflow-y-auto p-4" style={{ maxHeight: "calc(100vh - 20rem)" }}>
                 {data.messages.map((m) => {
-                  const src = m.mediaId ? `/api/whatsapp/media/${m.mediaId}` : null;
+                  const src = m.mediaId ? `/api/whatsapp/media/${encodeURIComponent(m.mediaId)}` : null;
                   if (m.private) {
                     return (
                       <div key={m.id} className="flex justify-center">

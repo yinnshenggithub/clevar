@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, LogIn, AlertTriangle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, LogIn, AlertTriangle, Loader2 } from "lucide-react";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { disconnectChannel } from "@/lib/actions/channels";
+import { disconnectWaWebChannel } from "@/lib/actions/wa-web";
 import { metaConfigured, tiktokConfigured } from "@/lib/oauth";
+import { waWebConfigured } from "@/lib/wa-web";
 import { PageHeader } from "@/components/app/page-header";
 import { MetaChannelForm, TikTokChannelForm } from "@/components/app/channel-forms";
+import { WaWebConnect, WaWebChannelSettings, WaWebRelink } from "@/components/app/wa-web-connect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -49,11 +52,14 @@ export default async function ChannelsPage({
     : sp.error
       ? { ok: false, text: OAUTH_MESSAGES[sp.error] ?? "Something went wrong connecting." }
       : null;
-  const [agents, meta, tiktok] = await Promise.all([
+  const [agents, meta, tiktok, waWebChannels] = await Promise.all([
     withTenant(ctx.workspaceId, (tx) => tx.aiAgent.findMany({ where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })),
     prisma.channelConnection.findFirst({ where: { workspaceId: ctx.workspaceId, provider: "meta" } }),
     prisma.channelConnection.findFirst({ where: { workspaceId: ctx.workspaceId, provider: "tiktok" } }),
+    prisma.waWebChannel.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: { createdAt: "asc" } }),
   ]);
+  const waWebReady = waWebConfigured();
+  const linkedNumbers = waWebChannels.filter((c) => c.status === "working" || c.phoneNumber);
 
   const base = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   const verifyToken = process.env.META_VERIFY_TOKEN || process.env.WHATSAPP_VERIFY_TOKEN || "(set META_VERIFY_TOKEN)";
@@ -63,8 +69,8 @@ export default async function ChannelsPage({
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader
-        title="Channels: Meta &amp; TikTok"
-        description="Connect Facebook Messenger, Instagram DMs, and Lead Ads, plus TikTok lead forms."
+        title="Channels"
+        description="Link WhatsApp numbers, Facebook Messenger, Instagram DMs, and TikTok lead forms."
         action={
           <Link href="/app/inbox">
             <Button variant="ghost" className="gap-2"><ArrowLeft className="h-4 w-4" /> Inbox</Button>
@@ -95,6 +101,85 @@ export default async function ChannelsPage({
           )}
         </div>
       )}
+
+      {/* WhatsApp — web-linked numbers */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">WhatsApp — link your number</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Pair the WhatsApp or WhatsApp Business app on your phone in a few clicks, like WhatsApp Web.{" "}
+            <Link href="/app/inbox/settings" className="underline underline-offset-2">
+              Using the official Cloud API instead? Set it up here.
+            </Link>
+          </p>
+
+          {linkedNumbers.length > 0 && (
+            <ul className="space-y-3">
+              {linkedNumbers.map((ch) => (
+                <li key={ch.id} className="space-y-3 rounded-lg border border-border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {ch.status === "working" ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Connected
+                      </span>
+                    ) : ch.status === "starting" || ch.status === "scan_qr" ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> Reconnecting…
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-3.5 w-3.5" /> {ch.status === "logged_out" ? "Signed out" : "Disconnected"}
+                      </span>
+                    )}
+                    <span className="text-sm font-medium">{ch.displayName}</span>
+                    {ch.phoneNumber && <span className="text-sm text-muted-foreground">{ch.phoneNumber}</span>}
+                  </div>
+                  {manage && (
+                    <>
+                      <WaWebChannelSettings
+                        channelId={ch.id}
+                        displayName={ch.displayName}
+                        autoReplyAgentId={ch.autoReplyAgentId}
+                        agents={agents}
+                      />
+                      <div className="flex flex-wrap items-start gap-2">
+                        {ch.status !== "working" && ch.status !== "starting" && ch.status !== "scan_qr" && (
+                          <WaWebRelink channelId={ch.id} />
+                        )}
+                        <form action={disconnectWaWebChannel.bind(null, ch.id)}>
+                          <Button type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10">
+                            Unlink number
+                          </Button>
+                        </form>
+                      </div>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {manage &&
+            (waWebReady ? (
+              <WaWebConnect />
+            ) : (
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs text-muted-foreground">
+                  Number linking isn&apos;t enabled on this server yet (admin: deploy the messaging gateway and set{" "}
+                  <code>WA_WEB_GATEWAY_URL</code>, <code>WA_WEB_GATEWAY_API_KEY</code>, and{" "}
+                  <code>WA_WEB_WEBHOOK_SECRET</code> — see <code>docs/wa-web-gateway-setup.md</code>).
+                </p>
+              </div>
+            ))}
+
+          <p className="text-xs text-muted-foreground">
+            Linked numbers use WhatsApp&apos;s multi-device protocol. Keep messaging human-paced — bulk blasts can get a
+            number restricted by WhatsApp — and open WhatsApp on your phone at least once every 14 days to stay linked.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Meta */}
       <Card>

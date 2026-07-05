@@ -1,10 +1,7 @@
 import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { withTenant } from "@/lib/tenant";
 import { verifyWebhookSignature, waPhoneToE164 } from "@/lib/whatsapp";
-import { runWorkflows } from "@/lib/workflow";
-import { runAgentReply, hasLlmKey } from "@/lib/agent-reply";
-import { evaluateAgentRules } from "@/lib/agent-rules";
+import { persistWaInbound, processWaMessageReceived, type WaIngestChannel } from "@/lib/inbox-ingest";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -20,13 +17,6 @@ export async function GET(req: Request) {
   }
   return new Response("Forbidden", { status: 403 });
 }
-
-type Channel = {
-  workspaceId: string;
-  phoneNumberId: string;
-  accessToken: string;
-  autoReplyAgentId: string | null;
-};
 
 export async function POST(req: Request) {
   const raw = await req.text();
@@ -52,17 +42,33 @@ export async function POST(req: Request) {
 
       const channel = await prisma.whatsAppChannel.findUnique({ where: { phoneNumberId } });
       if (!channel) continue;
+      const ingestChannel: WaIngestChannel = {
+        kind: "whatsapp",
+        id: channel.id,
+        workspaceId: channel.workspaceId,
+        autoReplyAgentId: channel.autoReplyAgentId,
+        phoneNumberId: channel.phoneNumberId,
+        accessToken: channel.accessToken,
+      };
       const name: string | null = value.contacts?.[0]?.profile?.name ?? null;
 
       for (const msg of messages) {
         const phone = waPhoneToE164(msg.from);
         const parsed = parseInbound(msg);
         if (!parsed) continue; // unsupported message type
-        const convoId = await persistInbound(channel, phone, name, parsed, msg.id);
+        const convoId = await persistWaInbound(ingestChannel, phone, name, {
+          type: parsed.type,
+          body: parsed.body,
+          mediaId: parsed.mediaId,
+          mediaMime: parsed.mediaMime,
+          mediaFilename: parsed.mediaFilename,
+          externalId: msg.id ?? null,
+        });
+        if (!convoId) continue; // duplicate redelivery
         // Process automation + AI reply after acking Meta with a 200.
         after(() =>
-          processMessageReceived(channel, convoId, phone, parsed.body).catch((e) =>
-            console.error("processMessageReceived failed", e),
+          processWaMessageReceived(ingestChannel, convoId, phone, parsed.body).catch((e) =>
+            console.error("processWaMessageReceived failed", e),
           ),
         );
       }
@@ -98,101 +104,4 @@ function parseInbound(msg: any): ParsedInbound | null {
     };
   }
   return null;
-}
-
-async function persistInbound(
-  channel: Channel,
-  phone: string,
-  name: string | null,
-  parsed: ParsedInbound,
-  waId: string | undefined,
-): Promise<string> {
-  return withTenant(channel.workspaceId, async (tx) => {
-    let contact = await tx.contact.findFirst({ where: { phone, deletedAt: null } });
-    if (!contact) {
-      contact = await tx.contact.create({ data: { workspaceId: channel.workspaceId, phone, firstName: name } });
-    }
-    let convo = await tx.conversation.findFirst({
-      where: { customerPhone: phone },
-      orderBy: { lastMessageAt: "desc" },
-    });
-    if (!convo) {
-      convo = await tx.conversation.create({
-        data: {
-          workspaceId: channel.workspaceId,
-          customerPhone: phone,
-          customerName: name,
-          contactId: contact.id,
-          assignedAgentId: channel.autoReplyAgentId,
-        },
-      });
-    }
-    await tx.message.create({
-      data: {
-        workspaceId: channel.workspaceId,
-        conversationId: convo.id,
-        direction: "INBOUND",
-        body: parsed.body,
-        type: parsed.type,
-        mediaId: parsed.mediaId,
-        mediaMime: parsed.mediaMime,
-        mediaFilename: parsed.mediaFilename,
-        waMessageId: waId,
-      },
-    });
-    await tx.conversation.update({
-      where: { id: convo.id },
-      // A new inbound message reopens the conversation, clears any snooze, and
-      // starts the "waiting on us" clock used by reporting/SLA.
-      data: {
-        lastMessageAt: new Date(),
-        status: "OPEN",
-        snoozedUntil: null,
-        waitingSince: new Date(),
-        customerName: name ?? convo.customerName,
-      },
-    });
-    return convo.id;
-  });
-}
-
-async function processMessageReceived(
-  channel: Channel,
-  conversationId: string,
-  phone: string,
-  messageText: string,
-): Promise<void> {
-  const { repliedExternally } = await runWorkflows(channel.workspaceId, "message_received", {
-    conversationId,
-    messageText,
-    customerPhone: phone,
-    channel: { phoneNumberId: channel.phoneNumberId, accessToken: channel.accessToken },
-  });
-  if (repliedExternally) return;
-
-  const convo = await withTenant(channel.workspaceId, (tx) =>
-    tx.conversation.findFirst({ where: { id: conversationId } }),
-  );
-  if (!convo?.assignedAgentId) return;
-
-  // If-then rules (keyword / "asks for a human") run without an LLM and can
-  // hand off to a human before any AI reply.
-  const { handedOff } = await evaluateAgentRules({
-    workspaceId: channel.workspaceId,
-    conversationId,
-    agentId: convo.assignedAgentId,
-    messageText,
-  });
-  if (handedOff) return;
-
-  if (hasLlmKey()) {
-    await runAgentReply({
-      workspaceId: channel.workspaceId,
-      phoneNumberId: channel.phoneNumberId,
-      accessToken: channel.accessToken,
-      conversationId,
-      phone,
-      agentId: convo.assignedAgentId,
-    });
-  }
 }

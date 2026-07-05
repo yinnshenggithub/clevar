@@ -40,10 +40,13 @@ function legacyGate(wf: Workflow): StepCondition | undefined {
   return { field, op: wf.conditionOp === "equals" ? "equals" : "contains", value: wf.conditionValue };
 }
 
-/** ctx is persisted into WorkflowRun.context across a Wait; channel creds are dropped. */
+/**
+ * ctx is persisted into WorkflowRun.context across a Wait. `channel` is a
+ * {kind, id} reference (no credentials), so it persists safely and sends keep
+ * working after resume.
+ */
 function serializeCtx(ctx: WorkflowContext): Prisma.InputJsonValue {
-  const { channel: _drop, ...rest } = ctx;
-  return rest as Prisma.InputJsonValue;
+  return ctx as unknown as Prisma.InputJsonValue;
 }
 
 async function persistWaitingRun(
