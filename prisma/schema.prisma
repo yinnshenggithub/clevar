@@ -409,16 +409,24 @@ enum AiMessageRole {
 // before any tenant context exists, so this routing/config table must be readable
 // without app.workspace_id (same rationale as invitations).
 model WhatsAppChannel {
-  id               String    @id @default(uuid()) @db.Uuid
-  workspaceId      String    @map("workspace_id") @db.Uuid
-  phoneNumberId    String    @unique @map("phone_number_id")
-  wabaId           String?   @map("waba_id")
-  displayName      String    @default("WhatsApp") @map("display_name")
-  accessToken      String    @map("access_token")
-  autoReplyAgentId String?   @map("auto_reply_agent_id") @db.Uuid
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                 String    @id @default(uuid()) @db.Uuid
+  workspaceId        String    @map("workspace_id") @db.Uuid
+  phoneNumberId      String    @unique @map("phone_number_id")
+  wabaId             String?   @map("waba_id")
+  displayName        String    @default("WhatsApp") @map("display_name")
+  // How the number was onboarded: "cloud" (manual Cloud API setup) or
+  // "coexistence" (existing WhatsApp Business app number linked via Embedded
+  // Signup — the phone app keeps working alongside the API).
+  mode               String    @default("cloud")
+  // connected | offboarded — flipped by account_offboarded/account_reconnected
+  // webhooks for coexistence numbers.
+  status             String    @default("connected")
+  displayPhoneNumber String?   @map("display_phone_number") // human-readable, e.g. "+60 12-345 6789"
+  accessToken        String    @map("access_token")
+  autoReplyAgentId   String?   @map("auto_reply_agent_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
   @@map("whatsapp_channels")

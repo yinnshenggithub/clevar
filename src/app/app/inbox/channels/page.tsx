@@ -3,13 +3,15 @@ import { ArrowLeft, CheckCircle2, LogIn, AlertTriangle, Loader2 } from "lucide-r
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
-import { disconnectChannel } from "@/lib/actions/channels";
+import { disconnectChannel, disconnectWhatsAppChannel } from "@/lib/actions/channels";
 import { disconnectWaWebChannel } from "@/lib/actions/wa-web";
 import { metaConfigured, tiktokConfigured } from "@/lib/oauth";
 import { waWebConfigured } from "@/lib/wa-web";
+import { coexClientConfig } from "@/lib/wa-coex";
 import { PageHeader } from "@/components/app/page-header";
 import { MetaChannelForm, TikTokChannelForm } from "@/components/app/channel-forms";
 import { WaWebConnect, WaWebChannelSettings, WaWebRelink } from "@/components/app/wa-web-connect";
+import { WaCoexConnect, WaChannelSettings } from "@/components/app/wa-coex-connect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -52,13 +54,28 @@ export default async function ChannelsPage({
     : sp.error
       ? { ok: false, text: OAUTH_MESSAGES[sp.error] ?? "Something went wrong connecting." }
       : null;
-  const [agents, meta, tiktok, waWebChannels] = await Promise.all([
+  const [agents, meta, tiktok, waWebChannels, waChannels] = await Promise.all([
     withTenant(ctx.workspaceId, (tx) => tx.aiAgent.findMany({ where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })),
     prisma.channelConnection.findFirst({ where: { workspaceId: ctx.workspaceId, provider: "meta" } }),
     prisma.channelConnection.findFirst({ where: { workspaceId: ctx.workspaceId, provider: "tiktok" } }),
     prisma.waWebChannel.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: { createdAt: "asc" } }),
+    prisma.whatsAppChannel.findMany({
+      where: { workspaceId: ctx.workspaceId },
+      // Deliberately no accessToken — keep the secret out of the RSC payload.
+      select: {
+        id: true,
+        displayName: true,
+        displayPhoneNumber: true,
+        phoneNumberId: true,
+        mode: true,
+        status: true,
+        autoReplyAgentId: true,
+      },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
   const waWebReady = waWebConfigured();
+  const coexClient = coexClientConfig();
   const linkedNumbers = waWebChannels.filter((c) => c.status === "working" || c.phoneNumber);
 
   const base = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
@@ -101,6 +118,84 @@ export default async function ChannelsPage({
           )}
         </div>
       )}
+
+      {/* WhatsApp — official (Cloud API + Business-app coexistence) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">WhatsApp Business app — official</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Connect the number already on your WhatsApp Business app through Meta&apos;s official platform. The app keeps
+            working on your phone, both stay in sync, and up to 6 months of chats import into your inbox.{" "}
+            <Link href="/app/inbox/settings" className="underline underline-offset-2">
+              Prefer manual Cloud API setup? Set it up here.
+            </Link>
+          </p>
+
+          {waChannels.length > 0 && (
+            <ul className="space-y-3">
+              {waChannels.map((ch) => (
+                <li key={ch.id} className="space-y-3 rounded-lg border border-border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {ch.status === "offboarded" ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-3.5 w-3.5" /> Disconnected from the app
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Connected
+                      </span>
+                    )}
+                    <span className="inline-flex items-center rounded-full border border-border bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
+                      {ch.mode === "coexistence" ? "Business app" : "Cloud API"}
+                    </span>
+                    <span className="text-sm font-medium">{ch.displayName}</span>
+                    <span className="text-sm text-muted-foreground">{ch.displayPhoneNumber ?? `ID ${ch.phoneNumberId}`}</span>
+                  </div>
+                  {manage && (
+                    <>
+                      <WaChannelSettings
+                        channelId={ch.id}
+                        displayName={ch.displayName}
+                        autoReplyAgentId={ch.autoReplyAgentId}
+                        agents={agents}
+                      />
+                      <form action={disconnectWhatsAppChannel.bind(null, ch.id)}>
+                        <Button type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10">
+                          Disconnect number
+                        </Button>
+                      </form>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {!manage && waChannels.length === 0 && (
+            <p className="text-sm text-muted-foreground">Only owners and admins can connect channels.</p>
+          )}
+          {manage &&
+            (coexClient ? (
+              <WaCoexConnect appId={coexClient.appId} configId={coexClient.configId} />
+            ) : (
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs text-muted-foreground">
+                  One-click connect isn&apos;t enabled on this server yet (admin: complete Meta approval and set{" "}
+                  <code>NEXT_PUBLIC_META_APP_ID</code>, <code>META_APP_SECRET</code>, and{" "}
+                  <code>NEXT_PUBLIC_META_ES_CONFIG_ID</code> — see <code>docs/meta-coexistence-approval.md</code>).
+                </p>
+              </div>
+            ))}
+
+          <p className="text-xs text-muted-foreground">
+            Requires the WhatsApp Business app (v2.24.17+). Open the app at least once every 14 days to stay connected.
+            Messages you send from the phone stay free; messages sent from Clevar are billed by Meta at standard Cloud
+            API rates.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* WhatsApp — web-linked numbers */}
       <Card>

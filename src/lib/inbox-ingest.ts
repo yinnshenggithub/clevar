@@ -1,4 +1,5 @@
 import "server-only";
+import { Prisma } from "@prisma/client";
 import { withTenant } from "./tenant";
 import { runWorkflows } from "./workflow";
 import { evaluateAgentRules } from "./agent-rules";
@@ -53,6 +54,10 @@ export async function persistWaInbound(
 ): Promise<string | null> {
   const channelType = CHANNEL_TYPE[channel.kind];
   return withTenant(channel.workspaceId, async (tx) => {
+    // Serialize concurrent writers of this customer's thread (webhook
+    // redeliveries, coexistence history/echo imports) so find-or-create can't
+    // fork the conversation. Released at COMMIT.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${channel.workspaceId}|${phone}|${channelType}`})::bigint)`;
     let contact = await tx.contact.findFirst({ where: { phone, deletedAt: null } });
     if (!contact) {
       contact = await tx.contact.create({ data: { workspaceId: channel.workspaceId, phone, firstName: name } });
@@ -85,19 +90,25 @@ export async function persistWaInbound(
       if (dupe) return null;
     }
 
-    await tx.message.create({
-      data: {
-        workspaceId: channel.workspaceId,
-        conversationId: convo.id,
-        direction: "INBOUND",
-        body: msg.body,
-        type: msg.type,
-        mediaId: msg.mediaId ?? null,
-        mediaMime: msg.mediaMime ?? null,
-        mediaFilename: msg.mediaFilename ?? null,
-        waMessageId: msg.externalId ?? null,
-      },
-    });
+    try {
+      await tx.message.create({
+        data: {
+          workspaceId: channel.workspaceId,
+          conversationId: convo.id,
+          direction: "INBOUND",
+          body: msg.body,
+          type: msg.type,
+          mediaId: msg.mediaId ?? null,
+          mediaMime: msg.mediaMime ?? null,
+          mediaFilename: msg.mediaFilename ?? null,
+          waMessageId: msg.externalId ?? null,
+        },
+      });
+    } catch (e) {
+      // Unique (workspace, wamid) — concurrent redelivery beat us to it.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return null;
+      throw e;
+    }
     await tx.conversation.update({
       where: { id: convo.id },
       // A new inbound message reopens the conversation, clears any snooze, and

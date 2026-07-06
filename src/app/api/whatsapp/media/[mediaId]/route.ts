@@ -14,7 +14,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ mediaId:
   if (!ctx) return new Response("Unauthorized", { status: 401 });
 
   // Authorize: the media must belong to a message in the caller's workspace (RLS).
-  const owns = await withTenant(ctx.workspaceId, (tx) => tx.message.findFirst({ where: { mediaId } }));
+  const owns = await withTenant(ctx.workspaceId, (tx) =>
+    tx.message.findFirst({
+      where: { mediaId },
+      select: { mediaMime: true, mediaFilename: true, conversation: { select: { channelId: true } } },
+    }),
+  );
   if (!owns) return new Response("Not found", { status: 404 });
 
   // Web-linked media is stored by the messaging gateway and streamed through it.
@@ -34,7 +39,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ mediaId:
     });
   }
 
-  const channel = await prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } });
+  // Media asset ids are scoped to the WABA that received them — use the owning
+  // conversation's channel token, falling back to any workspace channel for
+  // legacy rows without a channel binding.
+  const channel =
+    (owns.conversation.channelId
+      ? await prisma.whatsAppChannel.findFirst({
+          where: { id: owns.conversation.channelId, workspaceId: ctx.workspaceId },
+        })
+      : null) ?? (await prisma.whatsAppChannel.findFirst({ where: { workspaceId: ctx.workspaceId } }));
   if (!channel) return new Response("No channel", { status: 404 });
 
   const metaRes = await fetch(`${GRAPH}/${mediaId}`, {
