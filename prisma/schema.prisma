@@ -299,6 +299,16 @@ model AiAgent {
   handoffUserId  String?        @map("handoff_user_id") @db.Uuid
   rules          Json           @default("[]") // [{label, trigger, keywords?, action, note?}]
   actions        Json           @default("{}") // { close|assign|note|label|contactField: { enabled, guideline } }
+  // Structured prompt config (design: docs/support-agent-rag-design.md §4)
+  dos            Json           @default("[]") // string[] — "Always" guardrails
+  donts          Json           @default("[]") // string[] — "Never" guardrails
+  playbook       Json           @default("[]") // {scenario, response}[] — canned lines
+  examples       Json           @default("[]") // {user, assistant}[] — few-shot pairs
+  grounding      String         @default("strict") // strict | flexible | open
+  refusalLine    String?        @map("refusal_line") // fixed off-topic refusal sentence
+  languagePolicy String         @default("mirror") @map("language_policy") // mirror | fixed:<lang>
+  // CRM personalization allowlist (§3.4a); empty = off. e.g. ["name","company","tags","openDeals"]
+  profileFields  Json           @default("[]") @map("profile_fields")
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz

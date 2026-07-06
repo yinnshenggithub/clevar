@@ -5,8 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { resolveModel } from "@/lib/ai";
 import { MODEL_OPTIONS } from "@/lib/ai-models";
 import { getCredits, creditsForTokens, debitCredits } from "@/lib/credits";
-import { retrieveContext } from "@/lib/knowledge";
-import { buildAgentSystemPrompt, styleMaxTokens, type AgentConfig } from "@/lib/agent-presets";
+import { retrievePassages } from "@/lib/knowledge";
+import { prepareTurn } from "@/lib/agent-reply";
 import { buildActionTools, type AgentActions } from "@/lib/agent-actions";
 
 export const runtime = "nodejs";
@@ -45,21 +45,25 @@ export async function POST(
   const requested = typeof body.model === "string" ? body.model : "";
   const model = MODEL_OPTIONS.some((m) => m.value === requested) ? requested : agent.model;
 
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  const lastUserText = typeof lastUser?.content === "string" ? lastUser.content : "";
-  const context = await retrieveContext(ctx.workspaceId, agentId, lastUserText);
+  // Derive the current customer turn from the SAME trailing element we pop from
+  // history — a last-user-anywhere lookup could duplicate or drop a message.
+  const history = convertToCoreMessages(messages);
+  let lastUserText = "";
+  if (history.length && history[history.length - 1].role === "user") {
+    const last = history.pop()!;
+    lastUserText =
+      typeof last.content === "string"
+        ? last.content
+        : last.content
+            .filter((p): p is { type: "text"; text: string } => p.type === "text")
+            .map((p) => p.text)
+            .join("\n");
+  }
 
-  const config: AgentConfig = {
-    name: agent.name,
-    mode: agent.mode,
-    tone: agent.tone,
-    responseStyle: agent.responseStyle,
-    objectives: agent.objectives,
-    constraints: agent.constraints,
-    greeting: agent.greeting,
-    instructions: agent.instructions,
-    handoffEnabled: agent.handoffEnabled,
-  };
+  const [passages, docCount] = await Promise.all([
+    retrievePassages(ctx.workspaceId, agentId, lastUserText),
+    withTenant(ctx.workspaceId, (tx) => tx.agentDocument.count({ where: { agentId } })),
+  ]);
 
   // Dry-run action tools: the model can "call" the agent's enabled actions so the
   // tester shows what it would do, but nothing mutates live data.
@@ -77,12 +81,16 @@ export async function POST(
   });
   const hasTools = Object.keys(tools).length > 0;
 
+  // Same assembly as production replies: persona-only system, cached static
+  // block + "Understood.", history, wrapped customer turn with passages.
+  const plan = prepareTurn({ agent, history, customerText: lastUserText, passages, hasKnowledge: docCount > 0 });
+
   const result = streamText({
     model: resolveModel(model),
-    system: buildAgentSystemPrompt(config, context),
-    messages: convertToCoreMessages(messages),
-    temperature: agent.temperature,
-    maxTokens: styleMaxTokens(agent.responseStyle),
+    system: plan.system,
+    messages: plan.messages,
+    temperature: plan.temperature,
+    maxTokens: plan.maxTokens,
     ...(hasTools ? { tools, maxSteps: 5 } : {}),
     onFinish: async ({ usage }) => {
       try {

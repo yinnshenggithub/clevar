@@ -182,19 +182,18 @@ async function expandNeighbors(workspaceId: string, passages: Passage[]): Promis
  *   1. hybrid candidates — contextual BM25 (FTS over context_prefix + content)
  *      fused with pgvector cosine search via Reciprocal Rank Fusion
  *   2. rerank — voyage rerank-2.5-lite (fallback: lexical scorer)
- *   3. abstain — best relevance below threshold → "" (agent says "don't know"
+ *   3. abstain — best relevance below threshold → [] (agent says "don't know"
  *      instead of grounding on an off-topic passage)
  *   4. neighbor expansion + lost-in-middle ordering
  *
- * Returns a numbered string for the <knowledge> block, or "" when nothing
- * relevant exists.
+ * Returns the final ordered passage list ([] when nothing relevant exists).
  */
-export async function retrieveContext(
+export async function retrievePassages(
   workspaceId: string,
   agentId: string,
   query: string,
   limit = 6,
-): Promise<string> {
+): Promise<{ title: string; content: string }[]> {
   const q = (query || "").trim();
   try {
     if (q) {
@@ -255,7 +254,7 @@ export async function retrieveContext(
             } else if (!fts.length) {
               // Semantically weak AND zero lexical corroboration — abstain so
               // the agent says "don't know" instead of grounding off-topic.
-              return "";
+              return [];
             }
             // Gate tripped but lexical evidence exists → trust the lexical path.
           } catch (e) {
@@ -264,7 +263,7 @@ export async function retrieveContext(
         }
         if (!top?.length) top = lexicalRerank(fused, q, limit);
         const expanded = await expandNeighbors(workspaceId, top);
-        return formatPassages(lostInMiddle(expanded));
+        return lostInMiddle(expanded).map((p) => ({ title: p.title, content: p.content }));
       }
     }
 
@@ -280,7 +279,7 @@ export async function retrieveContext(
         LIMIT ${limit}
       `,
     )) as Passage[];
-    if (recent.length) return formatPassages(recent);
+    if (recent.length) return recent.map((p) => ({ title: p.title, content: p.content }));
 
     // ── Legacy fallback: documents that predate chunking (no chunk rows). ──
     let docs: { title: string; content: string }[] = [];
@@ -300,12 +299,23 @@ export async function retrieveContext(
         tx.$queryRaw`SELECT title, content FROM agent_documents WHERE agent_id = ${agentId}::uuid ORDER BY created_at DESC LIMIT 3`,
       )) as { title: string; content: string }[];
     }
-    if (!docs.length) return "";
-    return formatPassages(docs.map((d) => ({ title: d.title, content: bestSnippet(d.content, q), score: 0 })));
+    if (!docs.length) return [];
+    return docs.map((d) => ({ title: d.title, content: bestSnippet(d.content, q) }));
   } catch (e) {
-    console.error("retrieveContext failed", e);
-    return "";
+    console.error("retrievePassages failed", e);
+    return [];
   }
+}
+
+/** Numbered-string form of retrievePassages (legacy studio-chat prompt path). */
+export async function retrieveContext(
+  workspaceId: string,
+  agentId: string,
+  query: string,
+  limit = 6,
+): Promise<string> {
+  const passages = await retrievePassages(workspaceId, agentId, query, limit);
+  return passages.length ? formatPassages(passages.map((p) => ({ ...p, score: 0 }))) : "";
 }
 
 /** Builds the final system prompt, appending knowledge-base context when present. */
