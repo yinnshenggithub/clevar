@@ -277,6 +277,27 @@ const sendWhatsApp: ActionHandler = async (config, ac): Promise<ActionResult> =>
   return { repliedExternally: true };
 };
 
+const aiAgentReply: ActionHandler = async (config, ac): Promise<ActionResult> => {
+  const agentId = str(config.agentId).trim();
+  if (!agentId || !ac.ctx.conversationId) return {};
+  // ctx.reason is only ever set by the conversation_handoff emission — a
+  // handoff-triggered workflow must not bot-reply into the conversation the
+  // AI just handed to a human (would cascade: reply → escalate → handoff → …).
+  if (ac.ctx.reason) return {};
+  // Dynamic import: agent-reply → handoff → workflow would otherwise be a
+  // static module cycle with this file.
+  const { runWorkflowAgentReply } = await import("../agent-reply");
+  const replied = await runWorkflowAgentReply({
+    workspaceId: ac.workspaceId,
+    conversationId: ac.ctx.conversationId,
+    agentId,
+  }).catch((e) => {
+    console.error("ai_agent_reply action failed", e);
+    return false;
+  });
+  return replied ? { repliedExternally: true } : {};
+};
+
 const setCustomValue: ActionHandler = async (config, ac) => {
   const key = str(config.key).trim();
   const value = ac.render(str(config.value));
@@ -422,6 +443,7 @@ const HANDLERS: Record<string, ActionHandler> = {
   move_deal: moveDeal,
   assign_agent: assignAgent,
   send_reply: sendWhatsApp,
+  ai_agent_reply: aiAgentReply,
   send_whatsapp: sendWhatsApp,
   set_conversation_status: setConversationStatus,
   set_conversation_priority: setConversationPriority,

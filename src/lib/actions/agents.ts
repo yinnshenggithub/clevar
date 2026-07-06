@@ -46,7 +46,84 @@ const agentSchema = z.object({
   temperature: z.coerce.number().min(0).max(1).optional(),
   handoffEnabled: z.boolean().optional(),
   handoffUserId: z.string().uuid().optional().or(z.literal("")),
+  grounding: z.enum(["strict", "flexible", "open"]).optional(),
+  refusalLine: z.string().max(200).optional(),
+  languagePolicy: z.string().max(60).optional(),
+  handoffMessage: z.string().max(300).optional(),
 });
+
+/** Parses a JSON string[] hidden field (do's / don'ts). */
+function parseStringList(raw: FormDataEntryValue | null, maxItems: number, maxLen: number): string[] {
+  try {
+    const arr = JSON.parse(String(raw ?? "[]"));
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((s) => String(s ?? "").trim().slice(0, maxLen))
+      .filter(Boolean)
+      .slice(0, maxItems);
+  } catch {
+    return [];
+  }
+}
+
+/** Parses a JSON array of two-string objects (playbook / examples). */
+function parsePairs(raw: FormDataEntryValue | null, keyA: string, keyB: string, maxItems: number): object[] {
+  try {
+    const arr = JSON.parse(String(raw ?? "[]"));
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((p) => ({
+        [keyA]: String(p?.[keyA] ?? "").trim().slice(0, 400),
+        [keyB]: String(p?.[keyB] ?? "").trim().slice(0, 800),
+      }))
+      .filter((p) => p[keyA] && p[keyB])
+      .slice(0, maxItems);
+  } catch {
+    return [];
+  }
+}
+
+const PROFILE_FIELD_KEYS = new Set(["name", "company", "email", "phone", "tags", "openDeals"]);
+
+function parseProfileFields(raw: FormDataEntryValue | null): string[] {
+  try {
+    const arr = JSON.parse(String(raw ?? "[]"));
+    if (!Array.isArray(arr)) return [];
+    return arr.map(String).filter((f) => PROFILE_FIELD_KEYS.has(f));
+  } catch {
+    return [];
+  }
+}
+
+function parseHandoffTriggers(raw: FormDataEntryValue | null): object {
+  try {
+    const obj = JSON.parse(String(raw ?? "{}"));
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+    const out: Record<string, unknown> = { askHuman: obj.askHuman !== false };
+    const n = Number(obj.cantAnswer);
+    if (Number.isInteger(n) && n >= 1 && n <= 10) out.cantAnswer = n;
+    const h = obj.hours;
+    if (h && typeof h === "object" && h.enabled) {
+      const days = Array.isArray(h.days) ? h.days.map(Number).filter((d: number) => d >= 0 && d <= 6) : [];
+      const hm = (v: unknown) => (/^\d{1,2}:\d{2}$/.test(String(v ?? "")) ? String(v) : null);
+      const start = hm(h.start);
+      const end = hm(h.end);
+      if (days.length && start && end) {
+        out.hours = {
+          enabled: true,
+          days,
+          start,
+          end,
+          tz: String(h.tz ?? "UTC").slice(0, 60),
+          message: String(h.message ?? "").slice(0, 300) || undefined,
+        };
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
 
 interface RuleInput {
   label?: string;
@@ -89,11 +166,16 @@ function readAgent(formData: FormData) {
     temperature: formData.get("temperature") || undefined,
     handoffEnabled: formData.get("handoffEnabled") === "on",
     handoffUserId: formData.get("handoffUserId") || "",
+    grounding: formData.get("grounding") || undefined,
+    refusalLine: formData.get("refusalLine") || undefined,
+    languagePolicy: formData.get("languagePolicy") || undefined,
+    handoffMessage: formData.get("handoffMessage") || undefined,
   });
 }
 
 function agentData(
   v: z.infer<typeof agentSchema>,
+  formData: FormData,
   rules: RuleInput[],
   actions: Record<string, { enabled: boolean; guideline: string }>,
 ) {
@@ -112,6 +194,16 @@ function agentData(
     handoffUserId: v.handoffUserId || null,
     rules: rules as object[],
     actions: actions as object,
+    grounding: v.grounding || "strict",
+    refusalLine: v.refusalLine?.trim() || null,
+    languagePolicy: v.languagePolicy || "mirror",
+    handoffMessage: v.handoffMessage?.trim() || null,
+    dos: parseStringList(formData.get("dos"), 20, 200),
+    donts: parseStringList(formData.get("donts"), 20, 200),
+    playbook: parsePairs(formData.get("playbook"), "scenario", "response", 15),
+    examples: parsePairs(formData.get("examples"), "user", "assistant", 8),
+    profileFields: parseProfileFields(formData.get("profileFields")),
+    handoffTriggers: parseHandoffTriggers(formData.get("handoffTriggers")),
   };
 }
 
@@ -124,7 +216,7 @@ export async function createAgent(_prev: FormState, formData: FormData): Promise
   const actions = parseActions(formData.get("actions"));
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
-      await tx.aiAgent.create({ data: { workspaceId: ctx.workspaceId, ...agentData(v, rules, actions) } });
+      await tx.aiAgent.create({ data: { workspaceId: ctx.workspaceId, ...agentData(v, formData, rules, actions) } });
     });
   } catch (e) {
     console.error("createAgent failed", e);
@@ -147,7 +239,7 @@ export async function updateAgent(
   const actions = parseActions(formData.get("actions"));
   try {
     await withTenant(ctx.workspaceId, async (tx) => {
-      await tx.aiAgent.update({ where: { id }, data: agentData(v, rules, actions) });
+      await tx.aiAgent.update({ where: { id }, data: agentData(v, formData, rules, actions) });
     });
   } catch (e) {
     console.error("updateAgent failed", e);

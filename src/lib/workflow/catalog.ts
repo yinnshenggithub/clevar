@@ -71,6 +71,7 @@ export const TRIGGER_DEFS: TriggerDef[] = [
   { token: "note_created", label: "Note added", group: "Tasks & Notes" },
 
   { token: "message_received", label: "Message received", group: "Messaging", fields: ["trigger.messageText", "trigger.customerPhone"] },
+  { token: "conversation_handoff", label: "AI handed off to human", group: "Messaging", fields: ["trigger.reason", "trigger.summary", "trigger.customerPhone"] },
 
   { token: "scheduled", label: "Scheduler", group: "Events", scheduled: true, hint: "Runs on the cron cadence" },
 ];
@@ -130,6 +131,7 @@ export const ACTION_META: ActionMeta[] = [
 
   // Communication
   { token: "assign_agent", label: "Assign AI agent (auto-reply)", group: "Communication", fields: [{ name: "agentId", label: "AI agent", type: "agent" }] },
+  { token: "ai_agent_reply", label: "Reply with AI agent", group: "Communication", fields: [{ name: "agentId", label: "AI agent", type: "agent" }] },
   { token: "send_reply", label: "Send WhatsApp reply", group: "Communication", fields: [{ name: "text", label: "Message", type: "textarea" }] },
   { token: "send_whatsapp", label: "WhatsApp message", group: "Communication", fields: [{ name: "text", label: "Message", type: "textarea" }] },
   { token: "set_conversation_status", label: "Update conversation status", group: "Communication", fields: [{ name: "status", label: "Status", type: "status", options: STATUS_OPTS }] },

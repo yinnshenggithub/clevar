@@ -300,6 +300,9 @@ model AiAgent {
   temperature    Float          @default(0.5)
   handoffEnabled Boolean        @default(true) @map("handoff_enabled")
   handoffUserId  String?        @map("handoff_user_id") @db.Uuid
+  // {askHuman?:bool, cantAnswer?:number, hours?:{enabled,days:number[],start,end,tz,message?}}
+  handoffTriggers Json          @default("{}") @map("handoff_triggers")
+  handoffMessage  String?       @map("handoff_message") // customer-facing takeover line
   rules          Json           @default("[]") // [{label, trigger, keywords?, action, note?}]
   actions        Json           @default("{}") // { close|assign|note|label|contactField: { enabled, guideline } }
   // Structured prompt config (design: docs/support-agent-rag-design.md §4)

@@ -110,6 +110,16 @@ export default async function AgentDetailPage({
                   handoffUserId: agent.handoffUserId,
                   rules: Array.isArray(agent.rules) ? (agent.rules as AgentDefaults["rules"]) : [],
                   actions: (agent.actions ?? {}) as unknown as AgentDefaults["actions"],
+                  grounding: agent.grounding,
+                  refusalLine: agent.refusalLine,
+                  languagePolicy: agent.languagePolicy,
+                  handoffMessage: agent.handoffMessage,
+                  dos: Array.isArray(agent.dos) ? (agent.dos as string[]) : [],
+                  donts: Array.isArray(agent.donts) ? (agent.donts as string[]) : [],
+                  playbook: Array.isArray(agent.playbook) ? (agent.playbook as AgentDefaults["playbook"]) : [],
+                  examples: Array.isArray(agent.examples) ? (agent.examples as AgentDefaults["examples"]) : [],
+                  profileFields: Array.isArray(agent.profileFields) ? (agent.profileFields as string[]) : [],
+                  handoffTriggers: (agent.handoffTriggers ?? {}) as AgentDefaults["handoffTriggers"],
                 }}
                 submitLabel="Save changes"
               />

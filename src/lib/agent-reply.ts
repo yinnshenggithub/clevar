@@ -1,7 +1,9 @@
 import "server-only";
-import { generateText, type CoreMessage } from "ai";
+import { generateText, tool, type CoreMessage } from "ai";
+import { z } from "zod";
 import { withTenant } from "./tenant";
 import { prisma } from "./prisma";
+import { performHandoff, defaultHandoffMessage, type HandoffReason } from "./handoff";
 import { resolveModel } from "./ai";
 import { getCredits, creditsForTokens, debitCredits } from "./credits";
 import { sendWhatsAppText } from "./whatsapp";
@@ -59,11 +61,111 @@ export function hasLlmKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
 }
 
-/** "Don't know" delivery when a reply fails validation — honest, never a guess. */
+/** Shared marker between our fallback replies and the can't-answer trigger counter. */
+const DONT_KNOW_MARKER = "don't have that information";
+
+/** "Don't know" delivery when a reply fails validation — honest, never a guess.
+ *  Deliberately does NOT promise a teammate: no handoff happens here (the
+ *  can't-answer trigger or the escalate tool does that when configured). */
 function fallbackReply(cfg: PromptConfig): string {
   return cfg.handoffEnabled
-    ? "I don't have that information on hand — let me bring in a teammate who can help."
-    : "I don't have that information on hand right now.";
+    ? `I ${DONT_KNOW_MARKER} on hand right now — I've noted it for the team.`
+    : `I ${DONT_KNOW_MARKER} on hand right now.`;
+}
+
+// ── Deterministic handoff triggers (pre-LLM, free) ─────────────────────────────
+
+interface HandoffTriggerConfig {
+  askHuman?: boolean;
+  cantAnswer?: number;
+  hours?: { enabled?: boolean; days?: number[]; start?: string; end?: string; tz?: string; message?: string };
+}
+
+function triggerConfig(agent: any): HandoffTriggerConfig {
+  const t = agent?.handoffTriggers;
+  return t && typeof t === "object" && !Array.isArray(t) ? (t as HandoffTriggerConfig) : {};
+}
+
+// Explicit ask-for-a-human intents (EN + BM + ZH) — deliberately conservative.
+const ASK_HUMAN_RE =
+  /\b(real (person|human)|live (agent|person)|human (agent|please|support)|speak (to|with) (a |an |some)?(person|human|agent|someone real|representative)|talk to (a |an )?(person|human|agent|manager|representative)|(customer service|support|sales) representative)\b|cakap dengan (orang|manusia|staf)|nak cakap dengan|人工客服|转人工|真人客服/i;
+
+/** Minutes since midnight in the configured timezone; null when tz invalid. */
+function localMinutes(tz: string): { day: number; minutes: number } | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
+    // Some ICU builds emit "24" for midnight under hour12:false.
+    const minutes = (Number(get("hour")) % 24) * 60 + Number(get("minute"));
+    if (day < 0 || Number.isNaN(minutes)) return null;
+    return { day, minutes };
+  } catch {
+    return null;
+  }
+}
+
+function parseHm(v: string | undefined): number | null {
+  const m = (v ?? "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const mins = Number(m[1]) * 60 + Number(m[2]);
+  return mins >= 0 && mins < 1440 ? mins : null;
+}
+
+/**
+ * Pre-LLM handoff checks: explicit ask-for-human, outside business hours, and
+ * N consecutive "don't know" replies. Misconfigured pieces fail open (no
+ * handoff) rather than silencing the agent.
+ */
+function checkDeterministicHandoff(opts: {
+  trig: HandoffTriggerConfig;
+  customerText: string;
+  priorMessages: { direction: string; private: boolean; authorUserId: string | null; body: string }[];
+}): { reason: HandoffReason; message?: string } | null {
+  const { trig, customerText, priorMessages } = opts;
+
+  if ((trig.askHuman ?? true) && ASK_HUMAN_RE.test(customerText)) {
+    return { reason: "requested_human" };
+  }
+
+  const h = trig.hours;
+  if (h?.enabled) {
+    const now = localMinutes(h.tz || "UTC");
+    const start = parseHm(h.start);
+    const end = parseHm(h.end);
+    const days = Array.isArray(h.days) && h.days.length ? h.days : null;
+    if (now && start !== null && end !== null && days) {
+      const inDay = days.includes(now.day);
+      const inWindow =
+        start <= end ? now.minutes >= start && now.minutes < end : now.minutes >= start || now.minutes < end;
+      if (!inDay || !inWindow) return { reason: "off_hours", message: h.message?.trim() || undefined };
+    }
+  }
+
+  const n = trig.cantAnswer;
+  if (n && n >= 1) {
+    let misses = 0;
+    for (let i = priorMessages.length - 1; i >= 0; i--) {
+      const m = priorMessages[i];
+      if (m.direction === "INBOUND") continue; // customer retries don't reset the streak
+      if (m.private) continue;
+      if (m.authorUserId) break; // a human already replied
+      if (m.body.includes(DONT_KNOW_MARKER)) {
+        misses++;
+        if (misses >= n) return { reason: "cannot_answer" };
+      } else {
+        break; // streak broken by a real answer
+      }
+    }
+  }
+
+  return null;
 }
 
 // ── CRM personalization (§3.4a) ────────────────────────────────────────────────
@@ -114,7 +216,10 @@ async function loadTurn(workspaceId: string, conversationId: string, agentId: st
   const [tenant, members] = await Promise.all([
     withTenant(workspaceId, async (tx) => {
       const agent = await tx.aiAgent.findFirst({ where: { id: agentId, deletedAt: null } });
-      const convo = await tx.conversation.findFirst({ where: { id: conversationId }, select: { contactId: true } });
+      const convo = await tx.conversation.findFirst({
+        where: { id: conversationId },
+        select: { contactId: true, assignedAgentId: true, assignedUserId: true },
+      });
       const msgs = await tx.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" }, take: 20 });
       const labels = await tx.label.findMany({ select: { id: true, name: true } });
       const profile = agent
@@ -222,7 +327,7 @@ async function generateTurn(opts: {
   }
   // Nothing to respond to (e.g. the trailing message was outbound) — don't
   // generate against a blank question.
-  if (!customerText.trim()) return { text: "", usage: undefined };
+  if (!customerText.trim()) return { text: "", usage: undefined, handedOff: false };
 
   // Suspicious inbound still gets a (grounded, guarded) reply — but no tools.
   const inboundScreen = screenInbound(customerText);
@@ -242,6 +347,33 @@ async function generateTurn(opts: {
     labels,
     dryRun: false,
   });
+
+  // Semantic escalation — the doc-backed client-side signal tool. Plain "Use
+  // when…" phrasing on purpose: current models overtrigger on CRITICAL/MUST.
+  let handedOff = false;
+  if (agent.handoffEnabled) {
+    (tools as Record<string, unknown>).escalate_to_human = tool({
+      description:
+        "Hand this conversation to a human teammate. Use when the customer is frustrated or upset, asks for a person, has a complaint, refund, legal, or account-security issue, or you cannot answer from the knowledge base after trying.",
+      parameters: z.object({
+        reason: z.enum(["frustrated", "requested_human", "complaint", "cannot_answer", "sensitive_topic", "other"]),
+        summary: z.string().max(300).describe("One line of context for the teammate"),
+      }),
+      execute: async ({ reason, summary }) => {
+        // Idempotent within the turn — maxSteps lets the model call twice.
+        if (handedOff) {
+          return { ok: true, instruction: "Already handed off. Tell the customer a teammate will take over, then stop." };
+        }
+        handedOff = true;
+        await performHandoff({ workspaceId, conversationId, agent, reason, summary });
+        return {
+          ok: true,
+          instruction:
+            "A teammate has been notified and will take over. Tell the customer that in one short sentence, then stop.",
+        };
+      },
+    });
+  }
   const hasTools = Object.keys(tools).length > 0 && !inboundScreen.suspicious;
 
   const result = await generateText({
@@ -276,8 +408,12 @@ async function generateTurn(opts: {
     // Channels render plain text — citation markers are internal bookkeeping.
     text = stripCitations(text);
   }
+  // Tool fired but the model wrote nothing — still tell the customer.
+  if (!text.trim() && handedOff) {
+    text = (agent.handoffMessage as string | null)?.trim() || defaultHandoffMessage();
+  }
 
-  return { text, usage: result.usage };
+  return { text, usage: result.usage, handedOff };
 }
 
 // ── Reply turn (shared across channels) ────────────────────────────────────────
@@ -296,15 +432,54 @@ async function runReplyTurn(opts: {
   agentId: string;
   deliver: (text: string) => Promise<string | undefined>;
   clearWaiting: boolean;
-}): Promise<void> {
+}): Promise<boolean> {
   const { workspaceId, conversationId, agentId, deliver, clearWaiting } = opts;
-  if (!hasLlmKey()) return;
+  if (!hasLlmKey()) return false;
 
   const data = await loadTurn(workspaceId, conversationId, agentId);
-  if (!data.agent) return;
+  if (!data.agent) return false;
+
+  // Post-handoff signature: performHandoff clears assignedAgentId and (when
+  // configured) assigns a teammate. A human-owned conversation must never get
+  // a bot reply — this also covers the workflow "Reply with AI agent" path,
+  // which deliberately ignores the channel's default agent assignment.
+  if (data.convo && data.convo.assignedAgentId === null && data.convo.assignedUserId) return false;
+
+  const deliverAndPersist = async (text: string): Promise<void> => {
+    const externalId = await deliver(text);
+    await withTenant(workspaceId, async (tx) => {
+      await tx.message.create({
+        data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, type: "text", waMessageId: externalId ?? null },
+      });
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date(), ...(clearWaiting ? { waitingSince: null } : {}) },
+      });
+    });
+  };
+
+  // Deterministic handoff triggers run BEFORE any model call (free, reliable).
+  const lastInbound = [...data.msgs].reverse().find((m) => m.direction === "INBOUND" && !m.private);
+  if (data.agent.handoffEnabled && lastInbound) {
+    const hit = checkDeterministicHandoff({
+      trig: triggerConfig(data.agent),
+      customerText: lastInbound.body,
+      priorMessages: data.msgs.filter((m) => m.id !== lastInbound.id),
+    });
+    if (hit) {
+      const takeoverLine = await performHandoff({
+        workspaceId,
+        conversationId,
+        agent: data.agent,
+        reason: hit.reason,
+      });
+      await deliverAndPersist(hit.message ?? takeoverLine);
+      return true;
+    }
+  }
 
   const credits = await getCredits(workspaceId);
-  if (credits.remaining <= 0) return;
+  if (credits.remaining <= 0) return false;
 
   // Count only AI-authored customer replies — not human replies or private notes.
   const recentReplies = await withTenant(workspaceId, (tx) =>
@@ -318,7 +493,7 @@ async function runReplyTurn(opts: {
       },
     }),
   );
-  if (recentReplies >= REPLIES_PER_HOUR_CAP) return;
+  if (recentReplies >= REPLIES_PER_HOUR_CAP) return false;
 
   const coreMessages: CoreMessage[] = data.msgs
     .filter((m) => !m.private)
@@ -336,18 +511,7 @@ async function runReplyTurn(opts: {
     labels: data.labels,
   });
 
-  if (text.trim()) {
-    const externalId = await deliver(text);
-    await withTenant(workspaceId, async (tx) => {
-      await tx.message.create({
-        data: { workspaceId, conversationId, direction: "OUTBOUND", body: text, type: "text", waMessageId: externalId ?? null },
-      });
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data: { lastMessageAt: new Date(), ...(clearWaiting ? { waitingSince: null } : {}) },
-      });
-    });
-  }
+  if (text.trim()) await deliverAndPersist(text);
 
   await debitCredits(workspaceId, creditsForTokens(usage?.totalTokens ?? 0), {
     agentId,
@@ -355,6 +519,65 @@ async function runReplyTurn(opts: {
     tokensIn: usage?.promptTokens ?? 0,
     tokensOut: usage?.completionTokens ?? 0,
   });
+  return Boolean(text.trim());
+}
+
+/**
+ * Workflow-action entrypoint ("Reply with AI agent"): resolves the
+ * conversation's transport and runs a reply turn with the SPECIFIED agent —
+ * independent of the channel's default auto-reply agent. Returns whether a
+ * reply was delivered (drives the workflow's repliedExternally flag).
+ */
+export async function runWorkflowAgentReply(opts: {
+  workspaceId: string;
+  conversationId: string;
+  agentId: string;
+}): Promise<boolean> {
+  const { workspaceId, conversationId, agentId } = opts;
+  const convo = await withTenant(workspaceId, (tx) =>
+    tx.conversation.findFirst({
+      where: { id: conversationId },
+      select: { channelType: true, channelId: true, customerPhone: true },
+    }),
+  );
+  if (!convo) return false;
+
+  if (convo.channelType === "whatsapp") {
+    const channel = convo.channelId
+      ? await prisma.whatsAppChannel.findFirst({ where: { id: convo.channelId, workspaceId } })
+      : await prisma.whatsAppChannel.findFirst({ where: { workspaceId } });
+    if (!channel) return false;
+    return runReplyTurn({
+      workspaceId,
+      conversationId,
+      agentId,
+      deliver: (text) => sendWhatsAppText(channel.phoneNumberId, channel.accessToken, convo.customerPhone, text),
+      clearWaiting: false,
+    });
+  }
+  if (convo.channelType === "whatsapp_web") {
+    const channel = convo.channelId
+      ? await prisma.waWebChannel.findFirst({ where: { id: convo.channelId, workspaceId } })
+      : await prisma.waWebChannel.findFirst({ where: { workspaceId, status: "working" } });
+    if (!channel) return false;
+    return runReplyTurn({
+      workspaceId,
+      conversationId,
+      agentId,
+      deliver: (text) => sendGatewayText(channel.sessionName, phoneToChatId(convo.customerPhone), text),
+      clearWaiting: true,
+    });
+  }
+  if (convo.channelType === "webchat") {
+    return runReplyTurn({
+      workspaceId,
+      conversationId,
+      agentId,
+      deliver: async () => undefined,
+      clearWaiting: true,
+    });
+  }
+  return false; // other channel types (meta) not supported by this action yet
 }
 
 /** Generates an AI reply for a conversation and sends it over WhatsApp Cloud API, debiting credits. */

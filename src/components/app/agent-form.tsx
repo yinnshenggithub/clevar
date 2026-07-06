@@ -15,6 +15,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 
 type Rule = { label: string; trigger: "keyword" | "asks_human"; keywords: string; action: "handoff" | "note"; note: string };
+type Pair = { a: string; b: string };
+type HoursConfig = { enabled: boolean; days: number[]; start: string; end: string; tz: string; message: string };
+export type HandoffTriggersConfig = {
+  askHuman?: boolean;
+  cantAnswer?: number;
+  hours?: Partial<HoursConfig>;
+};
 
 export interface AgentDefaults {
   name?: string | null;
@@ -31,6 +38,124 @@ export interface AgentDefaults {
   handoffUserId?: string | null;
   rules?: Rule[] | null;
   actions?: AgentActions | null;
+  grounding?: string | null;
+  refusalLine?: string | null;
+  languagePolicy?: string | null;
+  handoffMessage?: string | null;
+  dos?: string[] | null;
+  donts?: string[] | null;
+  playbook?: { scenario: string; response: string }[] | null;
+  examples?: { user: string; assistant: string }[] | null;
+  profileFields?: string[] | null;
+  handoffTriggers?: HandoffTriggersConfig | null;
+}
+
+const GROUNDING_OPTIONS = [
+  { value: "strict", label: "Strict (recommended)", desc: "Answers business questions only from the knowledge base. No knowledge = honest “I don't know” + handoff. Most accurate." },
+  { value: "flexible", label: "Flexible", desc: "Prefers the knowledge base, but may add clearly-labeled general knowledge." },
+  { value: "open", label: "Open", desc: "No knowledge restriction — persona chatbot. Highest fluency, highest risk of made-up facts." },
+] as const;
+
+const PROFILE_FIELD_OPTIONS = [
+  { key: "name", label: "Name" },
+  { key: "company", label: "Company" },
+  { key: "email", label: "Email" },
+  { key: "phone", label: "Phone" },
+  { key: "tags", label: "Tags" },
+  { key: "openDeals", label: "Open deals (title + stage)" },
+] as const;
+
+const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+/** Simple add/remove list editor for short one-line entries (do's / don'ts). */
+function ListEditor({
+  items,
+  setItems,
+  placeholder,
+}: {
+  items: string[];
+  setItems: (v: string[]) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="space-y-2">
+      {items.map((v, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input
+            value={v}
+            onChange={(e) => setItems(items.map((x, idx) => (idx === i ? e.target.value : x)))}
+            placeholder={placeholder}
+          />
+          <button
+            type="button"
+            aria-label="Remove"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => setItems(items.filter((_, idx) => idx !== i))}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setItems([...items, ""])}>
+        <Plus className="h-3.5 w-3.5" /> Add
+      </Button>
+    </div>
+  );
+}
+
+/** Two-field row editor (playbook scenario→response, example customer→agent). */
+function PairEditor({
+  pairs,
+  setPairs,
+  labelA,
+  labelB,
+  placeholderA,
+  placeholderB,
+  addLabel,
+}: {
+  pairs: Pair[];
+  setPairs: (v: Pair[]) => void;
+  labelA: string;
+  labelB: string;
+  placeholderA: string;
+  placeholderB: string;
+  addLabel: string;
+}) {
+  return (
+    <div className="space-y-2">
+      {pairs.map((p, i) => (
+        <div key={i} className="space-y-2 rounded-lg border border-border p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">
+              {labelA} → {labelB}
+            </span>
+            <button
+              type="button"
+              aria-label="Remove"
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => setPairs(pairs.filter((_, idx) => idx !== i))}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+          <Input
+            value={p.a}
+            onChange={(e) => setPairs(pairs.map((x, idx) => (idx === i ? { ...x, a: e.target.value } : x)))}
+            placeholder={placeholderA}
+          />
+          <Textarea
+            rows={2}
+            value={p.b}
+            onChange={(e) => setPairs(pairs.map((x, idx) => (idx === i ? { ...x, b: e.target.value } : x)))}
+            placeholder={placeholderB}
+          />
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setPairs([...pairs, { a: "", b: "" }])}>
+        <Plus className="h-3.5 w-3.5" /> {addLabel}
+      </Button>
+    </div>
+  );
 }
 
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
@@ -71,11 +196,45 @@ export function AgentForm({
   const setAction = (key: string, patch: Partial<{ enabled: boolean; guideline: string }>) =>
     setActions((a) => ({ ...a, [key]: { ...a[key], ...patch } }));
 
+  const [dos, setDos] = useState<string[]>(defaults?.dos ?? []);
+  const [donts, setDonts] = useState<string[]>(defaults?.donts ?? []);
+  const [playbook, setPlaybook] = useState<Pair[]>(
+    (defaults?.playbook ?? []).map((p) => ({ a: p.scenario, b: p.response })),
+  );
+  const [examples, setExamples] = useState<Pair[]>(
+    (defaults?.examples ?? []).map((p) => ({ a: p.user, b: p.assistant })),
+  );
+  const [profileFields, setProfileFields] = useState<string[]>(defaults?.profileFields ?? []);
+  const langDefault = defaults?.languagePolicy ?? "mirror";
+  const [langMode, setLangMode] = useState<"mirror" | "fixed">(langDefault.startsWith("fixed:") ? "fixed" : "mirror");
+  const [langFixed, setLangFixed] = useState(langDefault.startsWith("fixed:") ? langDefault.slice(6) : "");
+  const trigDefaults = defaults?.handoffTriggers ?? {};
+  const [askHuman, setAskHuman] = useState(trigDefaults.askHuman !== false);
+  const [cantAnswer, setCantAnswer] = useState<number>(trigDefaults.cantAnswer ?? 0);
+  const [hours, setHours] = useState<HoursConfig>({
+    enabled: Boolean(trigDefaults.hours?.enabled),
+    days: trigDefaults.hours?.days ?? [1, 2, 3, 4, 5],
+    start: trigDefaults.hours?.start ?? "09:00",
+    end: trigDefaults.hours?.end ?? "18:00",
+    tz: trigDefaults.hours?.tz ?? "Asia/Kuala_Lumpur",
+    message: trigDefaults.hours?.message ?? "",
+  });
+
   return (
     <form
       action={(fd) => {
         fd.set("rules", JSON.stringify(rules.filter((r) => r.trigger === "asks_human" || r.keywords.trim())));
         fd.set("actions", JSON.stringify(actions));
+        fd.set("dos", JSON.stringify(dos.map((s) => s.trim()).filter(Boolean)));
+        fd.set("donts", JSON.stringify(donts.map((s) => s.trim()).filter(Boolean)));
+        fd.set("playbook", JSON.stringify(playbook.map((p) => ({ scenario: p.a.trim(), response: p.b.trim() })).filter((p) => p.scenario && p.response)));
+        fd.set("examples", JSON.stringify(examples.map((p) => ({ user: p.a.trim(), assistant: p.b.trim() })).filter((p) => p.user && p.assistant)));
+        fd.set("profileFields", JSON.stringify(profileFields));
+        fd.set("languagePolicy", langMode === "fixed" && langFixed.trim() ? `fixed:${langFixed.trim()}` : "mirror");
+        fd.set(
+          "handoffTriggers",
+          JSON.stringify({ askHuman, ...(cantAnswer >= 1 ? { cantAnswer } : {}), ...(hours.enabled ? { hours } : {}) }),
+        );
         return formAction(fd);
       }}
       className="max-w-2xl space-y-8"
@@ -177,6 +336,141 @@ export function AgentForm({
         </div>
       </div>
 
+      {/* Knowledge & accuracy */}
+      <div className="space-y-4">
+        <div>
+          <SectionTitle>Knowledge &amp; accuracy</SectionTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Controls how strictly answers are grounded in the knowledge base below.
+          </p>
+        </div>
+        <div className="space-y-2">
+          {GROUNDING_OPTIONS.map((g) => (
+            <label key={g.value} className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
+              <input
+                type="radio"
+                name="grounding"
+                value={g.value}
+                defaultChecked={(defaults?.grounding ?? "strict") === g.value}
+                className="mt-0.5 h-4 w-4"
+              />
+              <span>
+                <span className="block text-sm font-medium">{g.label}</span>
+                <span className="block text-xs text-muted-foreground">{g.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="refusalLine">Refusal line — said verbatim for out-of-bounds requests</Label>
+          <Input
+            id="refusalLine"
+            name="refusalLine"
+            defaultValue={defaults?.refusalLine ?? ""}
+            placeholder="I can't help with that, but I'm happy to answer questions about our products and services."
+          />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="langMode">Reply language</Label>
+            <Select id="langMode" value={langMode} onChange={(e) => setLangMode(e.target.value as "mirror" | "fixed")}>
+              <option value="mirror">Mirror the customer&apos;s language</option>
+              <option value="fixed">Always reply in…</option>
+            </Select>
+          </div>
+          {langMode === "fixed" && (
+            <div className="space-y-2">
+              <Label htmlFor="langFixed">Language</Label>
+              <Input id="langFixed" value={langFixed} onChange={(e) => setLangFixed(e.target.value)} placeholder="English / Malay / 中文" />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Do's & don'ts */}
+      <div className="space-y-4">
+        <div>
+          <SectionTitle>Do&apos;s &amp; don&apos;ts</SectionTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Short, specific lines work best — they become numbered rules in the agent&apos;s guardrails.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Always</Label>
+            <ListEditor items={dos} setItems={setDos} placeholder="Confirm the order number before troubleshooting" />
+          </div>
+          <div className="space-y-2">
+            <Label>Never</Label>
+            <ListEditor items={donts} setItems={setDonts} placeholder="Never speculate about future products" />
+          </div>
+        </div>
+      </div>
+
+      {/* Playbook */}
+      <div className="space-y-4">
+        <div>
+          <SectionTitle>Scenario playbook</SectionTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Canned responses for known situations — “If the customer asks about delivery time” → the exact line to use.
+          </p>
+        </div>
+        <PairEditor
+          pairs={playbook}
+          setPairs={setPlaybook}
+          labelA="If"
+          labelB="respond"
+          placeholderA="the customer asks about delivery time"
+          placeholderB="Standard delivery is 3–5 working days across Malaysia."
+          addLabel="Add scenario"
+        />
+      </div>
+
+      {/* Examples */}
+      <div className="space-y-4">
+        <div>
+          <SectionTitle>Example conversations</SectionTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            4–5 great question→answer pairs teach tone and format better than any instruction.
+          </p>
+        </div>
+        <PairEditor
+          pairs={examples}
+          setPairs={setExamples}
+          labelA="Customer"
+          labelB="agent replies"
+          placeholderA="Do you ship to Sabah?"
+          placeholderB="Yes! East Malaysia delivery takes 5–7 working days."
+          addLabel="Add example"
+        />
+      </div>
+
+      {/* Personalization */}
+      <div className="space-y-4">
+        <div>
+          <SectionTitle>Personalization</SectionTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Checked CRM fields are shown to the AI so it can greet customers by name and reference their account.
+            Unchecked fields are never sent to the model.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {PROFILE_FIELD_OPTIONS.map((f) => (
+            <label key={f.key} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={profileFields.includes(f.key)}
+                onChange={(e) =>
+                  setProfileFields((cur) => (e.target.checked ? [...cur, f.key] : cur.filter((k) => k !== f.key)))
+                }
+              />
+              {f.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
       {/* Actions */}
       <div className="space-y-4">
         <div>
@@ -250,6 +544,114 @@ export function AgentForm({
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
           </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="handoffMessage">Takeover message — sent to the customer when handing off</Label>
+          <Input
+            id="handoffMessage"
+            name="handoffMessage"
+            defaultValue={defaults?.handoffMessage ?? ""}
+            placeholder="Thanks for your patience — I'm bringing in a teammate to help."
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Automatic triggers</Label>
+          <div className="space-y-2 rounded-lg border border-border p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4" checked={askHuman} onChange={(e) => setAskHuman(e.target.checked)} />
+              Customer explicitly asks for a human (detected in English, Malay &amp; Chinese)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={cantAnswer >= 1}
+                onChange={(e) => setCantAnswer(e.target.checked ? 2 : 0)}
+              />
+              Agent couldn&apos;t answer
+              <Select
+                value={String(cantAnswer || 2)}
+                disabled={cantAnswer < 1}
+                onChange={(e) => setCantAnswer(Number(e.target.value))}
+                className="h-8 w-16"
+                aria-label="Miss count"
+              >
+                {[1, 2, 3, 5].map((n) => (
+                  <option key={n} value={n}>{n}×</option>
+                ))}
+              </Select>
+              times in a row
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={hours.enabled}
+                onChange={(e) => setHours((h) => ({ ...h, enabled: e.target.checked }))}
+              />
+              Outside business hours
+            </label>
+            {hours.enabled && (
+              <div className="ml-6 space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {DAY_LABELS.map((d, i) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() =>
+                        setHours((h) => ({
+                          ...h,
+                          // Keep at least one day — an empty schedule would be silently dropped on save.
+                          days: h.days.includes(i)
+                            ? h.days.length > 1
+                              ? h.days.filter((x) => x !== i)
+                              : h.days
+                            : [...h.days, i].sort(),
+                        }))
+                      }
+                      className={`h-8 w-9 rounded-md border text-xs font-medium ${
+                        hours.days.includes(i)
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground"
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Input
+                    type="time"
+                    value={hours.start}
+                    onChange={(e) => setHours((h) => ({ ...h, start: e.target.value }))}
+                    className="h-8 w-28"
+                    aria-label="Opens at"
+                  />
+                  to
+                  <Input
+                    type="time"
+                    value={hours.end}
+                    onChange={(e) => setHours((h) => ({ ...h, end: e.target.value }))}
+                    className="h-8 w-28"
+                    aria-label="Closes at"
+                  />
+                  <Input
+                    value={hours.tz}
+                    onChange={(e) => setHours((h) => ({ ...h, tz: e.target.value }))}
+                    className="h-8 w-44"
+                    placeholder="Asia/Kuala_Lumpur"
+                    aria-label="Timezone"
+                  />
+                </div>
+                <Input
+                  value={hours.message}
+                  onChange={(e) => setHours((h) => ({ ...h, message: e.target.value }))}
+                  placeholder="After-hours message (optional) — e.g. We're back at 9am and will reply then!"
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-2">

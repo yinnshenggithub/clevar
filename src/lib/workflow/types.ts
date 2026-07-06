@@ -28,6 +28,9 @@ export interface WorkflowContext {
   changedFields?: string[];
   tag?: string;
   actorId?: string;
+  // conversation_handoff payload
+  reason?: string;
+  summary?: string;
 
   // messaging send channel reference; creds resolved at send time
   channel?: { kind: "whatsapp" | "whatsapp_web"; id: string };

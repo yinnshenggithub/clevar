@@ -2,7 +2,7 @@
 
 import { useChat, type Message } from "ai/react";
 import { useEffect, useRef, useState } from "react";
-import { Send, RotateCcw, Zap, Settings2 } from "lucide-react";
+import { Send, RotateCcw, Zap, Settings2, BookOpenText, ChevronDown, ChevronUp } from "lucide-react";
 import { firstMatchingRule, ruleNote, type AgentRule } from "@/lib/agent-rule-match";
 import { MODEL_OPTIONS } from "@/lib/ai-models";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,25 @@ export function AgentTester({
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // "Behind the answer": which knowledge passages the last message grounded on.
+  interface RetrievalInfo {
+    semantic: boolean;
+    sufficient: boolean;
+    passages: { n: number; title: string; source: string | null; snippet: string }[];
+  }
+  const [retrieval, setRetrieval] = useState<RetrievalInfo | null>(null);
+  const [showRetrieval, setShowRetrieval] = useState(false);
+  const inspect = (text: string) => {
+    fetch(`/api/agents/${agentId}/retrieval`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q: text }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setRetrieval(d))
+      .catch(() => {});
+  };
+
   const busy = status === "submitted" || status === "streaming";
 
   // Live preview of which if-then rule the *current* draft message would trigger.
@@ -68,12 +87,14 @@ export function AgentTester({
     // Note rules don't stop the AI; the live chip already surfaced it. Send normally,
     // always with the currently selected model.
     append({ role: "user", content: text }, { body: { model } });
+    inspect(text);
     setInput("");
   }
 
   function reset() {
     setMessages([]);
     setInput("");
+    setRetrieval(null);
   }
 
   return (
@@ -153,6 +174,41 @@ export function AgentTester({
         )}
         <div ref={endRef} />
       </div>
+
+      {/* Behind the answer — retrieval inspector for the last message */}
+      {retrieval && (
+        <div className="border-t border-border px-3 pt-2 text-xs">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setShowRetrieval((v) => !v)}
+          >
+            <BookOpenText className="h-3.5 w-3.5" />
+            Behind the answer — {retrieval.passages.length} passage{retrieval.passages.length === 1 ? "" : "s"}
+            {retrieval.semantic ? " · semantic + keyword" : " · keyword search"}
+            {showRetrieval ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+          </button>
+          {showRetrieval && (
+            <div className="mt-2 max-h-40 space-y-2 overflow-y-auto pb-1">
+              {retrieval.passages.length === 0 ? (
+                <p className="text-muted-foreground">
+                  No relevant knowledge found — under strict grounding the agent says it doesn&apos;t know instead of guessing.
+                </p>
+              ) : (
+                retrieval.passages.map((p) => (
+                  <div key={p.n} className="rounded-md border border-border p-2">
+                    <div className="font-medium">
+                      [{p.n}] {p.title}
+                      {p.source && <span className="ml-1 font-normal text-muted-foreground">· {p.source}</span>}
+                    </div>
+                    <p className="mt-0.5 text-muted-foreground">{p.snippet}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Live rule chip */}
       {pending && (
