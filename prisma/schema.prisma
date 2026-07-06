@@ -334,6 +334,11 @@ model AgentChunk {
   documentId  String        @map("document_id") @db.Uuid
   idx         Int
   content     String
+  // Contextual-Retrieval situating sentence (generated at ingest); indexed for
+  // search (embedding + FTS) but never sent to the reply model.
+  contextPrefix String?     @map("context_prefix")
+  // voyage-3.5 embedding of contextPrefix + content; NULL until enrichment runs.
+  embedding   Unsupported("vector(1024)")?
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
   workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   document    AgentDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)

@@ -17,6 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
+// Knowledge ingest actions enrich chunks (contextualize + embed) in after() —
+// large documents need the full window.
+export const maxDuration = 300;
 
 export default async function AgentDetailPage({
   params,
