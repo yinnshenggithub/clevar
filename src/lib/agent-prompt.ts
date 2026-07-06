@@ -50,6 +50,8 @@ export interface PromptConfig {
 export interface RetrievedPassage {
   title: string;
   content: string;
+  /** Page URL / filename the passage came from. */
+  source?: string | null;
 }
 
 /** Seeded assistant ack after the static block (doc pattern from the support guide). */
@@ -200,7 +202,10 @@ export function compileTurnMessage(input: TurnInput): string {
   }
   const passages = input.passages.length
     ? input.passages
-        .map((p, i) => `<passage id="${i + 1}">\n${encodeUntrustedJson({ title: p.title, content: p.content })}\n</passage>`)
+        .map(
+          (p, i) =>
+            `<passage id="${i + 1}">\n${encodeUntrustedJson({ title: p.title, ...(p.source ? { source: p.source } : {}), content: p.content })}\n</passage>`,
+        )
         .join("\n")
     : "No relevant knowledge found.";
   parts.push(`<retrieved_knowledge>\n${passages}\n</retrieved_knowledge>`);

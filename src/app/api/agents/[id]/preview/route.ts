@@ -62,7 +62,9 @@ export async function POST(
 
   const [passages, docCount] = await Promise.all([
     retrievePassages(ctx.workspaceId, agentId, lastUserText),
-    withTenant(ctx.workspaceId, (tx) => tx.agentDocument.count({ where: { agentId } })),
+    withTenant(ctx.workspaceId, (tx) =>
+      tx.agentKnowledgeSource.count({ where: { agentId, source: { status: "ready" } } }),
+    ),
   ]);
 
   // Dry-run action tools: the model can "call" the agent's enabled actions so the

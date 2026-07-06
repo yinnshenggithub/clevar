@@ -121,7 +121,11 @@ async function loadTurn(workspaceId: string, conversationId: string, agentId: st
         ? await loadProfile(tx, convo?.contactId, asStringArray((agent as any).profileFields))
         : null;
       // Agent-level fact (not per-query): drives the grounding-contract variant.
-      const docCount = agent ? await tx.agentDocument.count({ where: { agentId } }) : 0;
+      // Only READY sources count — an agent whose sole source failed or is
+      // mid-crawl must not be strict-bound to an empty knowledge block.
+      const docCount = agent
+        ? await tx.agentKnowledgeSource.count({ where: { agentId, source: { status: "ready" } } })
+        : 0;
       return { agent, convo, msgs, labels, profile, hasKnowledge: docCount > 0 };
     }),
     prisma.workspaceMember.findMany({

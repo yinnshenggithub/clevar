@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resumeDueRuns, runScheduledTriggers } from "@/lib/workflow";
-import { embedPendingKnowledge } from "@/lib/knowledge-ingest";
+import { knowledgeMaintenance } from "@/lib/knowledge-ingest";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -35,9 +35,9 @@ export async function GET(req: Request) {
       console.error("runScheduledTriggers failed", e);
       return { fired: 0 };
     }),
-    embedPendingKnowledge().catch((e) => {
-      console.error("embedPendingKnowledge failed", e);
-      return { enrichedDocs: 0 };
+    knowledgeMaintenance().catch((e) => {
+      console.error("knowledgeMaintenance failed", e);
+      return { resumed: 0, recrawled: 0, enrichedSources: 0 };
     }),
   ]);
   return NextResponse.json({ ok: true, ...resumed, ...scheduled, ...embedded, at: now.toISOString() });

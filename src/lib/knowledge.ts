@@ -8,37 +8,16 @@ type Passage = {
   content: string;
   score: number;
   id?: string;
-  documentId?: string;
+  sourceId?: string;
   idx?: number;
+  /** Page URL / filename the chunk came from (user-visible citation target). */
+  source?: string | null;
 };
 
 // Below this reranker relevance the best candidate is considered off-topic and
 // retrieval abstains ("" → the agent honestly says it doesn't know instead of
 // grounding on an irrelevant passage). Conservative on purpose.
 const MIN_RELEVANCE = 0.25;
-
-/**
- * Extracts the most relevant ~`max`-char window of a document for a query, centered
- * on the first matching keyword (so long documents surface the passage that matches,
- * not just their opening). Falls back to the head when nothing matches.
- */
-function bestSnippet(content: string, query: string, max = 2200): string {
-  if (content.length <= max) return content;
-  const terms = (query || "")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 2);
-  const lc = content.toLowerCase();
-  let pos = -1;
-  for (const t of terms) {
-    const i = lc.indexOf(t);
-    if (i >= 0 && (pos < 0 || i < pos)) pos = i;
-  }
-  if (pos < 0) return content.slice(0, max) + "…";
-  const start = Math.max(0, pos - Math.floor(max / 3));
-  const end = Math.min(content.length, start + max);
-  return (start > 0 ? "…" : "") + content.slice(start, end) + (end < content.length ? "…" : "");
-}
 
 /**
  * Lexical reranker (fallback when no reranking key is configured). PostgreSQL
@@ -138,14 +117,14 @@ function mergeOverlap(a: string, b: string): string {
  * recovers answers that straddle chunk boundaries (procedures, policies).
  */
 async function expandNeighbors(workspaceId: string, passages: Passage[]): Promise<Passage[]> {
-  const anchors = passages.filter((p) => p.documentId !== undefined && p.idx !== undefined);
+  const anchors = passages.filter((p) => p.sourceId !== undefined && p.idx !== undefined);
   if (!anchors.length) return passages;
   const wanted = new Map<string, [string, number]>();
-  const have = new Set(anchors.map((p) => `${p.documentId}:${p.idx}`));
+  const have = new Set(anchors.map((p) => `${p.sourceId}:${p.idx}`));
   for (const p of anchors) {
     for (const n of [p.idx! - 1, p.idx! + 1]) {
-      const key = `${p.documentId}:${n}`;
-      if (n >= 0 && !have.has(key) && !wanted.has(key)) wanted.set(key, [p.documentId!, n]);
+      const key = `${p.sourceId}:${n}`;
+      if (n >= 0 && !have.has(key) && !wanted.has(key)) wanted.set(key, [p.sourceId!, n]);
     }
   }
   if (!wanted.size) return passages;
@@ -154,16 +133,16 @@ async function expandNeighbors(workspaceId: string, passages: Passage[]): Promis
     const pairs = Array.from(wanted.values());
     const rows = (await withTenant(workspaceId, (tx) =>
       tx.$queryRaw`
-        SELECT document_id AS "documentId", idx, content FROM agent_chunks
-        WHERE (document_id, idx) IN (${Prisma.join(pairs.map(([d, i]) => Prisma.sql`(${d}::uuid, ${i})`))})
+        SELECT source_id AS "sourceId", idx, content FROM knowledge_chunks
+        WHERE (source_id, idx) IN (${Prisma.join(pairs.map(([d, i]) => Prisma.sql`(${d}::uuid, ${i})`))})
       `,
-    )) as { documentId: string; idx: number; content: string }[];
-    const byKey = new Map(rows.map((r) => [`${r.documentId}:${r.idx}`, r.content]));
+    )) as { sourceId: string; idx: number; content: string }[];
+    const byKey = new Map(rows.map((r) => [`${r.sourceId}:${r.idx}`, r.content]));
 
     return passages.map((p) => {
-      if (p.documentId === undefined || p.idx === undefined) return p;
-      const prev = byKey.get(`${p.documentId}:${p.idx - 1}`);
-      const next = byKey.get(`${p.documentId}:${p.idx + 1}`);
+      if (p.sourceId === undefined || p.idx === undefined) return p;
+      const prev = byKey.get(`${p.sourceId}:${p.idx - 1}`);
+      const next = byKey.get(`${p.sourceId}:${p.idx + 1}`);
       let content = p.content;
       if (prev) content = mergeOverlap(prev, content);
       if (next) content = mergeOverlap(content, next);
@@ -193,19 +172,20 @@ export async function retrievePassages(
   agentId: string,
   query: string,
   limit = 6,
-): Promise<{ title: string; content: string }[]> {
+): Promise<{ title: string; content: string; source?: string | null }[]> {
   const q = (query || "").trim();
   try {
     if (q) {
-      // ── Lexical candidates (contextual BM25 — matches the migration-31 index). ──
+      // ── Lexical candidates (contextual BM25 — matches the migration-33 index). ──
       const fts = (await withTenant(workspaceId, (tx) =>
         tx.$queryRaw`
-          SELECT c.id, c.document_id AS "documentId", c.idx, d.title AS title, c.content AS content,
+          SELECT c.id, c.source_id AS "sourceId", c.idx, s.title AS title, c.content AS content, c.source_ref AS source,
             ts_rank_cd(to_tsvector('english', coalesce(c.context_prefix, '') || ' ' || c.content),
                        websearch_to_tsquery('english', ${q})) AS score
-          FROM agent_chunks c
-          JOIN agent_documents d ON d.id = c.document_id
-          WHERE c.agent_id = ${agentId}::uuid
+          FROM knowledge_chunks c
+          JOIN knowledge_sources s ON s.id = c.source_id
+          JOIN agent_knowledge_sources aks ON aks.source_id = c.source_id AND aks.agent_id = ${agentId}::uuid
+          WHERE s.status = 'ready'
             AND to_tsvector('english', coalesce(c.context_prefix, '') || ' ' || c.content)
                 @@ websearch_to_tsquery('english', ${q})
           ORDER BY score DESC
@@ -225,11 +205,12 @@ export async function retrievePassages(
             // starved out of the top candidates.
             await tx.$executeRaw`SET LOCAL hnsw.ef_search = 100`;
             return tx.$queryRaw`
-              SELECT c.id, c.document_id AS "documentId", c.idx, d.title AS title, c.content AS content,
+              SELECT c.id, c.source_id AS "sourceId", c.idx, s.title AS title, c.content AS content, c.source_ref AS source,
                 1 - (c.embedding <=> ${lit}::vector) AS score
-              FROM agent_chunks c
-              JOIN agent_documents d ON d.id = c.document_id
-              WHERE c.agent_id = ${agentId}::uuid AND c.embedding IS NOT NULL
+              FROM knowledge_chunks c
+              JOIN knowledge_sources s ON s.id = c.source_id
+              JOIN agent_knowledge_sources aks ON aks.source_id = c.source_id AND aks.agent_id = ${agentId}::uuid
+              WHERE s.status = 'ready' AND c.embedding IS NOT NULL
               ORDER BY c.embedding <=> ${lit}::vector
               LIMIT 20
             `;
@@ -263,44 +244,24 @@ export async function retrievePassages(
         }
         if (!top?.length) top = lexicalRerank(fused, q, limit);
         const expanded = await expandNeighbors(workspaceId, top);
-        return lostInMiddle(expanded).map((p) => ({ title: p.title, content: p.content }));
+        return lostInMiddle(expanded).map((p) => ({ title: p.title, content: p.content, source: p.source }));
       }
     }
 
     // Fallback: no keyword/semantic match (or vague message) — earliest chunks of
-    // recent docs, so a small knowledge base is always available.
+    // recent sources, so a small knowledge base is always available.
     const recent = (await withTenant(workspaceId, (tx) =>
       tx.$queryRaw`
-        SELECT c.id, c.document_id AS "documentId", c.idx, d.title AS title, c.content AS content, 0 AS score
-        FROM agent_chunks c
-        JOIN agent_documents d ON d.id = c.document_id
-        WHERE c.agent_id = ${agentId}::uuid
-        ORDER BY d.created_at DESC, c.idx ASC
+        SELECT c.id, c.source_id AS "sourceId", c.idx, s.title AS title, c.content AS content, c.source_ref AS source, 0 AS score
+        FROM knowledge_chunks c
+        JOIN knowledge_sources s ON s.id = c.source_id
+        JOIN agent_knowledge_sources aks ON aks.source_id = c.source_id AND aks.agent_id = ${agentId}::uuid
+        WHERE s.status = 'ready'
+        ORDER BY s.created_at DESC, c.idx ASC
         LIMIT ${limit}
       `,
     )) as Passage[];
-    if (recent.length) return recent.map((p) => ({ title: p.title, content: p.content }));
-
-    // ── Legacy fallback: documents that predate chunking (no chunk rows). ──
-    let docs: { title: string; content: string }[] = [];
-    if (q) {
-      docs = (await withTenant(workspaceId, (tx) =>
-        tx.$queryRaw`
-          SELECT title, content FROM agent_documents
-          WHERE agent_id = ${agentId}::uuid
-            AND to_tsvector('english', title || ' ' || content) @@ websearch_to_tsquery('english', ${q})
-          ORDER BY ts_rank_cd(to_tsvector('english', title || ' ' || content), websearch_to_tsquery('english', ${q})) DESC
-          LIMIT 3
-        `,
-      )) as { title: string; content: string }[];
-    }
-    if (!docs.length) {
-      docs = (await withTenant(workspaceId, (tx) =>
-        tx.$queryRaw`SELECT title, content FROM agent_documents WHERE agent_id = ${agentId}::uuid ORDER BY created_at DESC LIMIT 3`,
-      )) as { title: string; content: string }[];
-    }
-    if (!docs.length) return [];
-    return docs.map((d) => ({ title: d.title, content: bestSnippet(d.content, q) }));
+    return recent.map((p) => ({ title: p.title, content: p.content, source: p.source }));
   } catch (e) {
     console.error("retrievePassages failed", e);
     return [];

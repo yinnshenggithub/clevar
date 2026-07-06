@@ -76,6 +76,9 @@ model Workspace {
   recordAssociations RecordAssociation[]
   agentChunks       AgentChunk[]
   dealContacts      DealContact[]
+  knowledgeSources  KnowledgeSource[]
+  knowledgeChunks   KnowledgeChunk[]
+  agentKnowledgeSources AgentKnowledgeSource[]
 
   @@map("workspaces")
 }
@@ -315,6 +318,7 @@ model AiAgent {
   workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations AiConversation[]
   documents     AgentDocument[]
+  knowledgeSources AgentKnowledgeSource[]
 
   @@index([workspaceId, createdAt])
   @@map("ai_agents")
@@ -335,8 +339,77 @@ model AgentDocument {
   @@map("agent_documents")
 }
 
+// Workspace-shared knowledge source (text | file | url | site). Lifecycle:
+// pending → processing → ready | failed. Attached to agents via
+// AgentKnowledgeSource; chunks carry the retrieval indexes.
+model KnowledgeSource {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  type         String // text | file | url | site
+  title        String
+  // type-specific: {url, crawl, queue, visited, pages, hashes} for url/site;
+  // {text} for text; {filename, mime} for file; {legacy} for backfilled rows.
+  config       Json      @default("{}")
+  status       String    @default("pending") // pending | processing | ready | failed
+  error        String?
+  chunkCount   Int       @default(0) @map("chunk_count")
+  tokenCount   Int       @default(0) @map("token_count")
+  contentHash  String?   @map("content_hash")
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz
+  recrawlEvery Int?      @map("recrawl_every") // hours; null = manual re-sync only
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  chunks       KnowledgeChunk[]
+  agents       AgentKnowledgeSource[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+  @@map("knowledge_sources")
+}
+
+model KnowledgeChunk {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  sourceId    String   @map("source_id") @db.Uuid
+  // Page-namespaced: pageNo * 1000 + chunkNo, so a re-crawled page replaces its
+  // own block and idx±1 neighbor expansion stays within one page.
+  idx         Int
+  content     String
+  // Cited back to the user: page URL (site crawls) / filename.
+  sourceRef   String?  @map("source_ref")
+  contextPrefix String? @map("context_prefix")
+  tokenCount  Int      @default(0) @map("token_count")
+  // voyage-3.5 embedding of contextPrefix + content; NULL until enrichment runs.
+  embedding   Unsupported("vector(1024)")?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  source      KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, idx])
+  @@index([workspaceId])
+  @@map("knowledge_chunks")
+}
+
+// Many-to-many: several agents can share one source.
+model AgentKnowledgeSource {
+  agentId     String          @map("agent_id") @db.Uuid
+  sourceId    String          @map("source_id") @db.Uuid
+  workspaceId String          @map("workspace_id") @db.Uuid
+  agent       AiAgent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  source      KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, sourceId])
+  @@index([sourceId])
+  @@index([workspaceId])
+  @@map("agent_knowledge_sources")
+}
+
 // Ingestion-time passages of a document. Retrieval ranks + returns the top-k
 // chunks (small, digestible), never whole documents.
+// LEGACY (superseded by KnowledgeSource/KnowledgeChunk in migration 33) — kept
+// read-only one release, then dropped.
 model AgentChunk {
   id          String        @id @default(uuid()) @db.Uuid
   workspaceId String        @map("workspace_id") @db.Uuid

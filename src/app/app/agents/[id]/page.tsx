@@ -1,17 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MessageSquare, FileText, FlaskConical } from "lucide-react";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { updateAgent, deleteAgent } from "@/lib/actions/agents";
-import { deleteDocument } from "@/lib/actions/knowledge";
 import { PageHeader } from "@/components/app/page-header";
 import { AgentForm, type AgentDefaults } from "@/components/app/agent-form";
 import { AgentTester } from "@/components/app/agent-tester";
 import type { AgentRule } from "@/lib/agent-rule-match";
-import { KnowledgeForm } from "@/components/app/knowledge-form";
-import { UrlKnowledgeForm } from "@/components/app/url-knowledge-form";
+import { KnowledgeManager, type KnowledgeSourceRow } from "@/components/app/knowledge-manager";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,15 +29,38 @@ export default async function AgentDetailPage({
   const data = await withTenant(ctx.workspaceId, async (tx) => {
     const agent = await tx.aiAgent.findFirst({ where: { id, deletedAt: null } });
     if (!agent) return null;
-    const documents = await tx.agentDocument.findMany({
-      where: { agentId: id },
+    const all = await tx.knowledgeSource.findMany({
       orderBy: { createdAt: "desc" },
-      select: { id: true, title: true, createdAt: true },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        status: true,
+        error: true,
+        chunkCount: true,
+        lastSyncedAt: true,
+        agents: { select: { agentId: true } },
+      },
     });
-    return { agent, documents };
+    return { agent, all };
   });
   if (!data) notFound();
-  const { agent, documents } = data;
+  const { agent, all } = data;
+  const attached: KnowledgeSourceRow[] = all
+    .filter((s) => s.agents.some((a) => a.agentId === id))
+    .map((s) => ({
+      id: s.id,
+      type: s.type,
+      title: s.title,
+      status: s.status,
+      error: s.error,
+      chunkCount: s.chunkCount,
+      lastSyncedAt: s.lastSyncedAt?.toISOString() ?? null,
+      usedBy: s.agents.length,
+    }));
+  const available = all
+    .filter((s) => !s.agents.some((a) => a.agentId === id) && s.status === "ready")
+    .map((s) => ({ id: s.id, title: s.title, type: s.type }));
   const members = await prisma.workspaceMember.findMany({
     where: { workspaceId: ctx.workspaceId },
     include: { user: { select: { id: true, fullName: true } } },
@@ -101,36 +122,18 @@ export default async function AgentDetailPage({
                 <FileText className="h-4 w-4" /> Knowledge base
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <div>
-                <p className="mb-3 text-sm text-muted-foreground">
-                  Add documents or import a web page. Relevant snippets are retrieved per message
-                  (full-text search) and grounded into the agent&apos;s answers.
-                </p>
-                <div className="mb-3">
-                  <UrlKnowledgeForm agentId={id} />
-                </div>
-                <KnowledgeForm agentId={id} />
-              </div>
-              <div>
-                <h4 className="mb-2 text-sm font-medium">Documents ({documents.length})</h4>
-                {documents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No documents yet.</p>
-                ) : (
-                  <ul className="divide-y divide-border rounded-md border border-border">
-                    {documents.map((d) => (
-                      <li key={d.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                        <span className="truncate text-sm">{d.title}</span>
-                        <DeleteButton
-                          action={deleteDocument.bind(null, id, d.id)}
-                          label=""
-                          confirmText={`Delete "${d.title}"?`}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+            <CardContent>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Import your website, upload files, or paste text. The most relevant passages are
+                retrieved per message and grounded into the agent&apos;s answers. Sources are shared
+                across the workspace — attach one to several agents.
+              </p>
+              <KnowledgeManager
+                agentId={id}
+                sources={attached}
+                available={available}
+                canManage={canManageWorkspace(ctx.role)}
+              />
             </CardContent>
           </Card>
         </div>
