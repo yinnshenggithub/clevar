@@ -98,9 +98,10 @@ function ObjectSection({
                   {f.label}
                   {f.required && <span className="ml-1 text-destructive">*</span>}
                 </div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">{obj.token}.{f.key}</code>
                   <Badge variant="secondary">{typeLabel(f.type)}</Badge>
-                  {f.target && <span className="ml-1">→ {f.target}</span>}
+                  {f.target && <span>→ {f.target}</span>}
                 </div>
               </div>
               <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
@@ -117,9 +118,10 @@ function ObjectSection({
                     {f.label}
                     {f.required && <span className="ml-1 text-destructive">*</span>}
                   </div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">{obj.token}.{f.key}</code>
                     <Badge variant="secondary">{typeLabel(f.type)}</Badge>
-                    {rel && <span className="ml-1">→ {rel}</span>}
+                    {rel && <span>→ {rel}</span>}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
