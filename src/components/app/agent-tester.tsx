@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Send, RotateCcw, Zap, Settings2, BookOpenText, ChevronDown, ChevronUp } from "lucide-react";
 import { firstMatchingRule, ruleNote, type AgentRule } from "@/lib/agent-rule-match";
 import { MODEL_OPTIONS } from "@/lib/ai-models";
+import { stripCitations } from "@/lib/citations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -154,7 +155,7 @@ export function AgentTester({
                         : "bg-secondary text-secondary-foreground",
                   )}
                 >
-                  {m.content}
+                  {m.role === "assistant" ? stripCitations(m.content) : m.content}
                 </div>
               )}
             </div>

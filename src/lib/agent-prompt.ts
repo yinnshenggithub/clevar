@@ -214,9 +214,4 @@ export function compileTurnMessage(input: TurnInput): string {
 }
 
 /** Strips citation markers for channels that render plain text (WhatsApp etc.). */
-export function stripCitations(text: string): string {
-  return text
-    .replace(/\s*\[\d{1,2}\](?=[\s.,;:!?)]|$)/g, "")
-    .replace(/ {2,}/g, " ")
-    .trim();
-}
+export { stripCitations } from "./citations";
