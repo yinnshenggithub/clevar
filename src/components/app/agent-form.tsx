@@ -47,6 +47,7 @@ export interface AgentDefaults {
   playbook?: { scenario: string; response: string }[] | null;
   examples?: { user: string; assistant: string }[] | null;
   profileFields?: string[] | null;
+  intakeFields?: string[] | null;
   handoffTriggers?: HandoffTriggersConfig | null;
 }
 
@@ -166,11 +167,13 @@ export function AgentForm({
   action,
   defaults,
   members = [],
+  catalog = [],
   submitLabel,
 }: {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
   defaults?: AgentDefaults;
   members?: { id: string; name: string }[];
+  catalog?: { qualified: string; label: string }[];
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, {});
@@ -205,6 +208,8 @@ export function AgentForm({
     (defaults?.examples ?? []).map((p) => ({ a: p.user, b: p.assistant })),
   );
   const [profileFields, setProfileFields] = useState<string[]>(defaults?.profileFields ?? []);
+  const [intakeFields, setIntakeFields] = useState<string[]>(defaults?.intakeFields ?? []);
+  const [intakePick, setIntakePick] = useState<string>("");
   const langDefault = defaults?.languagePolicy ?? "mirror";
   const [langMode, setLangMode] = useState<"mirror" | "fixed">(langDefault.startsWith("fixed:") ? "fixed" : "mirror");
   const [langFixed, setLangFixed] = useState(langDefault.startsWith("fixed:") ? langDefault.slice(6) : "");
@@ -230,6 +235,7 @@ export function AgentForm({
         fd.set("playbook", JSON.stringify(playbook.map((p) => ({ scenario: p.a.trim(), response: p.b.trim() })).filter((p) => p.scenario && p.response)));
         fd.set("examples", JSON.stringify(examples.map((p) => ({ user: p.a.trim(), assistant: p.b.trim() })).filter((p) => p.user && p.assistant)));
         fd.set("profileFields", JSON.stringify(profileFields));
+        fd.set("intakeFields", JSON.stringify(intakeFields));
         fd.set("languagePolicy", langMode === "fixed" && langFixed.trim() ? `fixed:${langFixed.trim()}` : "mirror");
         fd.set(
           "handoffTriggers",
@@ -468,6 +474,60 @@ export function AgentForm({
               {f.label}
             </label>
           ))}
+        </div>
+      </div>
+
+      {/* Required intake */}
+      <div className="space-y-4">
+        <div>
+          <SectionTitle>Required intake</SectionTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Properties the agent must collect before it answers anything else. While any are missing, the agent
+            withholds product help and asks for them in order, storing each answer. Leave empty to disable.
+          </p>
+        </div>
+        {intakeFields.length > 0 && (
+          <ol className="space-y-1">
+            {intakeFields.map((q, i) => {
+              const label = catalog.find((c) => c.qualified === q)?.label ?? q;
+              return (
+                <li key={q} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">{i + 1}.</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {label} <code className="ml-1 rounded bg-muted px-1 font-mono text-xs">{q}</code>
+                  </span>
+                  <button type="button" aria-label="Move up" disabled={i === 0}
+                    className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30"
+                    onClick={() => setIntakeFields((cur) => { const a = [...cur]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; return a; })}>↑</button>
+                  <button type="button" aria-label="Move down" disabled={i === intakeFields.length - 1}
+                    className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30"
+                    onClick={() => setIntakeFields((cur) => { const a = [...cur]; [a[i + 1], a[i]] = [a[i], a[i + 1]]; return a; })}>↓</button>
+                  <button type="button" aria-label="Remove"
+                    className="rounded p-1 text-destructive hover:bg-accent"
+                    onClick={() => setIntakeFields((cur) => cur.filter((x) => x !== q))}>✕</button>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        <div className="flex items-center gap-2">
+          <select
+            value={intakePick}
+            onChange={(e) => setIntakePick(e.target.value)}
+            className="h-9 flex-1 rounded-md border border-border bg-background px-2 text-sm"
+          >
+            <option value="">Add a property to collect…</option>
+            {catalog
+              .filter((c) => !intakeFields.includes(c.qualified))
+              .map((c) => (
+                <option key={c.qualified} value={c.qualified}>{c.label} — {c.qualified}</option>
+              ))}
+          </select>
+          <Button type="button" variant="outline" size="sm" className="gap-1"
+            disabled={!intakePick}
+            onClick={() => { if (intakePick) { setIntakeFields((cur) => [...cur, intakePick]); setIntakePick(""); } }}>
+            <Plus className="h-3.5 w-3.5" /> Add
+          </Button>
         </div>
       </div>
 

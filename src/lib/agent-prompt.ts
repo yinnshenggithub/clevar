@@ -45,6 +45,7 @@ export interface PromptConfig {
   grounding: string; // strict | flexible | open
   refusalLine: string | null;
   languagePolicy: string; // mirror | fixed:<lang>
+  intakeFields: string[]; // ordered object.key list to collect before assisting
 }
 
 export interface RetrievedPassage {
@@ -190,9 +191,11 @@ export interface TurnInput {
   profile?: Record<string, unknown> | null;
   passages: RetrievedPassage[];
   customerText: string;
+  /** Code-owned imperative appended last (e.g. intake collection mode) — outranks the message. */
+  directive?: string | null;
 }
 
-/** Per-turn user message: profile → knowledge → question last (long-context ordering). */
+/** Per-turn user message: profile → knowledge → question, then any code-owned directive last. */
 export function compileTurnMessage(input: TurnInput): string {
   const parts: string[] = [];
   if (input.profile && Object.keys(input.profile).length) {
@@ -210,6 +213,7 @@ export function compileTurnMessage(input: TurnInput): string {
     : "No relevant knowledge found.";
   parts.push(`<retrieved_knowledge>\n${passages}\n</retrieved_knowledge>`);
   parts.push(`<customer_message>${encodeUntrusted(input.customerText)}</customer_message>`);
+  if (input.directive?.trim()) parts.push(input.directive.trim());
   return parts.join("\n\n");
 }
 

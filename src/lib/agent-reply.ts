@@ -20,6 +20,7 @@ import {
   type PromptConfig,
   type RetrievedPassage,
 } from "./agent-prompt";
+import { computeIntake, intakeDirective } from "./agent-intake";
 import { screenInbound, screenOutbound, validateCitations } from "./agent-guard";
 import { buildActionTools, type AgentActions } from "./agent-actions";
 
@@ -50,6 +51,7 @@ export function toPromptConfig(agent: any): PromptConfig {
     grounding: agent.grounding ?? "strict",
     refusalLine: agent.refusalLine ?? null,
     languagePolicy: agent.languagePolicy ?? "mirror",
+    intakeFields: asStringArray(agent.intakeFields),
   };
 }
 
@@ -267,6 +269,8 @@ export function prepareTurn(opts: {
   profile?: Record<string, unknown> | null;
   /** Agent has ANY knowledge documents — NOT whether this query matched some. */
   hasKnowledge?: boolean;
+  /** Code-owned imperative appended last to the turn (e.g. intake collection mode). */
+  directive?: string | null;
 }): TurnPlan {
   const cfg = toPromptConfig(opts.agent);
   const staticBlock = compileStaticBlock(cfg, opts.hasKnowledge ?? opts.passages.length > 0);
@@ -274,6 +278,7 @@ export function prepareTurn(opts: {
     profile: opts.profile,
     passages: opts.passages,
     customerText: opts.customerText,
+    directive: opts.directive,
   });
 
   const messages: CoreMessage[] = [
@@ -336,7 +341,19 @@ async function generateTurn(opts: {
   }
 
   const passages = await retrievePassages(workspaceId, agent.id, customerText);
-  const plan = prepareTurn({ agent, history, customerText, passages, profile, hasKnowledge });
+  const intakeFields = asStringArray(agent.intakeFields);
+  const intake = await computeIntake(workspaceId, contactId, intakeFields);
+  const plan = prepareTurn({
+    agent,
+    history,
+    customerText,
+    // Collection mode: withhold knowledge so the model can't answer product
+    // questions, and inject the imperative to collect the next field.
+    passages: intake.active ? [] : passages,
+    profile,
+    hasKnowledge,
+    directive: intake.active ? intakeDirective(intake) : null,
+  });
 
   const { tools } = await buildActionTools({
     workspaceId,
@@ -346,6 +363,8 @@ async function generateTurn(opts: {
     members,
     labels,
     dryRun: false,
+    // Intake needs set_property regardless of the action toggle.
+    forceProperties: intakeFields.length > 0,
   });
 
   // Semantic escalation — the doc-backed client-side signal tool. Plain "Use

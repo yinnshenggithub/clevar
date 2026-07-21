@@ -203,6 +203,7 @@ function agentData(
     playbook: parsePairs(formData.get("playbook"), "scenario", "response", 15),
     examples: parsePairs(formData.get("examples"), "user", "assistant", 8),
     profileFields: parseProfileFields(formData.get("profileFields")),
+    intakeFields: parseStringList(formData.get("intakeFields"), 30, 100),
     handoffTriggers: parseHandoffTriggers(formData.get("handoffTriggers")),
   };
 }

@@ -8,6 +8,7 @@ import { getCredits, creditsForTokens, debitCredits } from "@/lib/credits";
 import { retrievePassages } from "@/lib/knowledge";
 import { prepareTurn } from "@/lib/agent-reply";
 import { buildActionTools, type AgentActions } from "@/lib/agent-actions";
+import { computeIntake, intakeDirective } from "@/lib/agent-intake";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -74,18 +75,33 @@ export async function POST(
     prisma.workspaceMember.findMany({ where: { workspaceId: ctx.workspaceId }, include: { user: { select: { id: true, fullName: true } } } }),
     withTenant(ctx.workspaceId, (tx) => tx.label.findMany({ select: { id: true, name: true } })),
   ]);
+  const intakeFields = Array.isArray(agent.intakeFields)
+    ? (agent.intakeFields as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
   const { tools } = await buildActionTools({
     workspaceId: ctx.workspaceId,
     actions,
     members: members.map((m) => ({ id: m.user.id, name: m.user.fullName })),
     labels,
     dryRun: true,
+    forceProperties: intakeFields.length > 0,
   });
   const hasTools = Object.keys(tools).length > 0;
 
+  // No live contact in the tester, so intake reads every field as missing —
+  // this demonstrates the collection flow (writes are simulated).
+  const intake = await computeIntake(ctx.workspaceId, null, intakeFields);
+
   // Same assembly as production replies: persona-only system, cached static
   // block + "Understood.", history, wrapped customer turn with passages.
-  const plan = prepareTurn({ agent, history, customerText: lastUserText, passages, hasKnowledge: docCount > 0 });
+  const plan = prepareTurn({
+    agent,
+    history,
+    customerText: lastUserText,
+    passages: intake.active ? [] : passages,
+    hasKnowledge: docCount > 0,
+    directive: intake.active ? intakeDirective(intake) : null,
+  });
 
   const result = streamText({
     model: resolveModel(model),

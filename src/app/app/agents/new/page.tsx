@@ -1,6 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createAgent } from "@/lib/actions/agents";
+import { loadPropertyCatalog } from "@/lib/agent-properties";
 import { PageHeader } from "@/components/app/page-header";
 import { AgentForm } from "@/components/app/agent-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,13 +15,14 @@ export default async function NewAgentPage() {
     include: { user: { select: { id: true, fullName: true } } },
   });
   const memberList = members.map((m) => ({ id: m.user.id, name: m.user.fullName }));
+  const catalog = (await loadPropertyCatalog(ctx.workspaceId)).map((e) => ({ qualified: e.qualified, label: e.label }));
 
   return (
     <div>
       <PageHeader title="New AI agent" description="Tune the persona, objectives, rules, and handoff." />
       <Card>
         <CardContent className="pt-6">
-          <AgentForm action={createAgent} members={memberList} submitLabel="Create agent" />
+          <AgentForm action={createAgent} members={memberList} catalog={catalog} submitLabel="Create agent" />
         </CardContent>
       </Card>
     </div>

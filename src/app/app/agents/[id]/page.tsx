@@ -5,6 +5,7 @@ import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { updateAgent, deleteAgent } from "@/lib/actions/agents";
+import { loadPropertyCatalog } from "@/lib/agent-properties";
 import { PageHeader } from "@/components/app/page-header";
 import { AgentForm, type AgentDefaults } from "@/components/app/agent-form";
 import { AgentTester } from "@/components/app/agent-tester";
@@ -66,6 +67,7 @@ export default async function AgentDetailPage({
     include: { user: { select: { id: true, fullName: true } } },
   });
   const memberList = members.map((m) => ({ id: m.user.id, name: m.user.fullName }));
+  const catalog = (await loadPropertyCatalog(ctx.workspaceId)).map((e) => ({ qualified: e.qualified, label: e.label }));
 
   return (
     <div className="space-y-6">
@@ -95,6 +97,7 @@ export default async function AgentDetailPage({
               <AgentForm
                 action={updateAgent.bind(null, id)}
                 members={memberList}
+                catalog={catalog}
                 defaults={{
                   name: agent.name,
                   instructions: agent.instructions,
@@ -119,6 +122,7 @@ export default async function AgentDetailPage({
                   playbook: Array.isArray(agent.playbook) ? (agent.playbook as AgentDefaults["playbook"]) : [],
                   examples: Array.isArray(agent.examples) ? (agent.examples as AgentDefaults["examples"]) : [],
                   profileFields: Array.isArray(agent.profileFields) ? (agent.profileFields as string[]) : [],
+                  intakeFields: Array.isArray(agent.intakeFields) ? (agent.intakeFields as string[]) : [],
                   handoffTriggers: (agent.handoffTriggers ?? {}) as AgentDefaults["handoffTriggers"],
                 }}
                 submitLabel="Save changes"

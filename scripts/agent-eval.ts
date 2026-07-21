@@ -42,6 +42,7 @@ const cfg: PromptConfig = {
   grounding: "strict",
   refusalLine: null,
   languagePolicy: "mirror",
+  intakeFields: [],
 };
 
 // ── 1. Containment: untrusted text can never open/close prompt tags ──────────

@@ -35,8 +35,10 @@ export async function buildActionTools(opts: {
   members: { id: string; name: string }[];
   labels: { id: string; name: string }[];
   dryRun: boolean;
+  /** Force the property tools on even if the action toggle is off (intake needs them). */
+  forceProperties?: boolean;
 }): Promise<{ tools: Record<string, any>; taken: string[] }> {
-  const { workspaceId, conversationId, contactId, actions, members, labels, dryRun } = opts;
+  const { workspaceId, conversationId, contactId, actions, members, labels, dryRun, forceProperties } = opts;
   const taken: string[] = [];
   const tools: Record<string, any> = {};
   const live = !dryRun && Boolean(conversationId);
@@ -129,7 +131,7 @@ export async function buildActionTools(opts: {
     });
   }
 
-  if (enabled(actions, "contactField")) {
+  if (enabled(actions, "contactField") || forceProperties) {
     const catalog = await loadPropertyCatalog(workspaceId);
     const keys = catalog.map((e) => e.qualified);
     const schema = keys.length

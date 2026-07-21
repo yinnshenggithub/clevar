@@ -315,6 +315,9 @@ model AiAgent {
   languagePolicy String         @default("mirror") @map("language_policy") // mirror | fixed:<lang>
   // CRM personalization allowlist (§3.4a); empty = off. e.g. ["name","company","tags","openDeals"]
   profileFields  Json           @default("[]") @map("profile_fields")
+  // Required intake: ordered object.key list the agent must collect before it
+  // will answer anything else (empty = off). e.g. ["contact.firstName","project.projectName"]
+  intakeFields   Json           @default("[]") @map("intake_fields")
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz
