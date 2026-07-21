@@ -14,6 +14,24 @@ export function slugify(input: string): string {
     .slice(0, 48);
 }
 
+/**
+ * Canonical property/object code: camelCase, letter-first. Used for custom-field
+ * keys and custom-object slugs so every identifier follows one scheme
+ * (e.g. "Project Name" → "projectName", "project_location" → "projectLocation").
+ */
+export function camelKey(input: string): string {
+  const words = input
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "";
+  const camel = words
+    .map((w, i) => (i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join("");
+  return camel.replace(/^[^a-zA-Z]+/, "");
+}
+
 export function formatCurrency(amount: number | null | undefined, currency = "USD"): string {
   if (amount == null) return "—";
   try {

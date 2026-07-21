@@ -1,17 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ArrowUp, ArrowDown, Boxes, Lock, Plus } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowDown, Boxes, Lock, Plus, Pencil, Wand2 } from "lucide-react";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
-import { deleteField, reorderField } from "@/lib/actions/objects";
+import { deleteField, reorderField, updateObjectDefinition, normalizeIdentifiers } from "@/lib/actions/objects";
 import { listObjects, listFields, listBuiltinFields, type FieldDefRow, type BuiltinField, type ObjectMeta } from "@/lib/objects-registry";
 import { FIELD_TYPE_LABELS, relationTarget, isRelationType, type FieldType } from "@/lib/custom-objects";
 import { PageHeader } from "@/components/app/page-header";
 import { FieldForm } from "@/components/app/field-form";
+import { EditFieldForm } from "@/components/app/edit-field-form";
 import { DeleteButton } from "@/components/app/delete-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,23 @@ export default async function AllPropertiesSettingsPage() {
         }
       />
 
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-3 py-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Standardize property codes</p>
+            <p className="text-xs text-muted-foreground">
+              Every property is addressed as <code className="rounded bg-muted px-1 font-mono">object.key</code> (singular, camelCase).
+              Run this to rewrite any legacy codes to the canonical form — stored values and links move with them.
+            </p>
+          </div>
+          <form action={normalizeIdentifiers}>
+            <Button type="submit" variant="outline" className="gap-2">
+              <Wand2 className="h-4 w-4" /> Normalize codes
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
       {objects.map((obj) => (
         <ObjectSection
           key={obj.token}
@@ -90,6 +109,24 @@ function ObjectSection({
         <Badge variant="secondary">{obj.kind === "core" ? "Built-in" : "Custom"} object</Badge>
       </CardHeader>
       <CardContent className="space-y-3">
+        {obj.kind === "custom" && obj.objectDefinitionId && (
+          <details className="rounded-md border border-border">
+            <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+              <Pencil className="h-4 w-4" /> Rename object (code: {obj.token})
+            </summary>
+            <form action={updateObjectDefinition.bind(null, obj.objectDefinitionId)} className="grid grid-cols-1 gap-3 border-t border-border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground" htmlFor={`sing-${obj.token}`}>Singular name (drives the code)</label>
+                <Input id={`sing-${obj.token}`} name="nameSingular" defaultValue={obj.label} required />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground" htmlFor={`plur-${obj.token}`}>Plural name</label>
+                <Input id={`plur-${obj.token}`} name="namePlural" defaultValue={obj.pluralLabel} required />
+              </div>
+              <Button type="submit" size="sm">Save</Button>
+            </form>
+          </details>
+        )}
         <ul className="divide-y divide-border rounded-md border border-border">
           {builtins.map((f) => (
             <li key={f.key} className="flex items-center justify-between gap-2 px-3 py-2">
@@ -112,31 +149,50 @@ function ObjectSection({
           {fields.map((f, i) => {
             const rel = isRelationType(f.type) ? relationTarget(f.options) : null;
             return (
-              <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {f.label}
-                    {f.required && <span className="ml-1 text-destructive">*</span>}
+              <li key={f.id} className="px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {f.label}
+                      {f.required && <span className="ml-1 text-destructive">*</span>}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">{obj.token}.{f.key}</code>
+                      <Badge variant="secondary">{typeLabel(f.type)}</Badge>
+                      {rel && <span>→ {rel}</span>}
+                    </div>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">{obj.token}.{f.key}</code>
-                    <Badge variant="secondary">{typeLabel(f.type)}</Badge>
-                    {rel && <span>→ {rel}</span>}
+                  <div className="flex shrink-0 items-center gap-1">
+                    <form action={reorderField.bind(null, f.id, obj.token, "up")}>
+                      <button type="submit" disabled={i === 0} className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30" aria-label="Move up">
+                        <ArrowUp className="h-4 w-4" />
+                      </button>
+                    </form>
+                    <form action={reorderField.bind(null, f.id, obj.token, "down")}>
+                      <button type="submit" disabled={i === fields.length - 1} className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30" aria-label="Move down">
+                        <ArrowDown className="h-4 w-4" />
+                      </button>
+                    </form>
+                    <DeleteButton action={deleteField.bind(null, f.id, obj.token)} label="" confirmText={`Delete property "${f.label}"?`} />
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <form action={reorderField.bind(null, f.id, obj.token, "up")}>
-                    <button type="submit" disabled={i === 0} className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30" aria-label="Move up">
-                      <ArrowUp className="h-4 w-4" />
-                    </button>
-                  </form>
-                  <form action={reorderField.bind(null, f.id, obj.token, "down")}>
-                    <button type="submit" disabled={i === fields.length - 1} className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30" aria-label="Move down">
-                      <ArrowDown className="h-4 w-4" />
-                    </button>
-                  </form>
-                  <DeleteButton action={deleteField.bind(null, f.id, obj.token)} label="" confirmText={`Delete property "${f.label}"?`} />
-                </div>
+                <details className="mt-1">
+                  <summary className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" /> Edit
+                  </summary>
+                  <div className="mt-2">
+                    <EditFieldForm
+                      fieldId={f.id}
+                      token={obj.token}
+                      label={f.label}
+                      type={f.type}
+                      required={f.required}
+                      defaultValue={f.defaultValue}
+                      options={f.options}
+                      customTargets={customTargets}
+                    />
+                  </div>
+                </details>
               </li>
             );
           })}

@@ -7,10 +7,11 @@ import { z } from "zod";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { cleanupAssociations } from "@/lib/associations";
-import { slugify } from "@/lib/utils";
+import { camelKey } from "@/lib/utils";
 import { FIELD_TYPES, isRelationType, hasChoices, supportsDefault } from "@/lib/custom-objects";
 import { getObjectMeta, isCoreToken } from "@/lib/objects-registry";
 import { readValues, missingRequired } from "@/lib/field-values";
+import { renameFieldValues, cascadeObjectSlug } from "@/lib/object-rename";
 
 /** Revalidate every page that renders an object's records/fields after a field change. */
 function revalidateForToken(token: string): void {
@@ -35,9 +36,13 @@ export interface FormState {
 }
 
 function keyFromLabel(label: string): string {
-  return (
-    slugify(label).replace(/-/g, "_").replace(/^[^a-z]+/, "") || `field_${Date.now().toString(36)}`
-  );
+  return camelKey(label) || `field${Date.now().toString(36)}`;
+}
+
+const RESERVED_SLUGS = ["contact", "company", "deal", "task", "note"];
+
+function slugFromName(nameSingular: string): string {
+  return camelKey(nameSingular) || `object${Date.now().toString(36)}`;
 }
 
 // ── Object definitions ─────────────────────────────────────────────────────
@@ -55,8 +60,8 @@ export async function createObjectDefinition(_prev: FormState, formData: FormDat
     namePlural: formData.get("namePlural"),
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const slug = slugify(parsed.data.namePlural) || `object-${Date.now().toString(36)}`;
-  if (["contact", "company", "deal"].includes(slug)) {
+  const slug = slugFromName(parsed.data.nameSingular);
+  if (RESERVED_SLUGS.includes(slug)) {
     return { error: "That name is reserved. Choose another." };
   }
   try {
@@ -84,14 +89,63 @@ export async function updateObjectDefinition(id: string, formData: FormData): Pr
   const nameSingular = String(formData.get("nameSingular") ?? "").trim();
   const namePlural = String(formData.get("namePlural") ?? "").trim();
   if (!nameSingular || !namePlural) return;
-  let slug = "";
+  let finalSlug = "";
   await withTenant(ctx.workspaceId, async (tx) => {
-    // slug (URL) is intentionally kept stable on rename
-    const def = await tx.objectDefinition.update({ where: { id }, data: { nameSingular, namePlural } });
-    slug = def.slug;
+    const def = await tx.objectDefinition.findFirst({ where: { id } });
+    if (!def) return;
+    // Code (slug) follows the singular name; cascade the rename through every reference.
+    const newSlug = slugFromName(nameSingular);
+    finalSlug = def.slug;
+    if (newSlug !== def.slug && !RESERVED_SLUGS.includes(newSlug)) {
+      const clash = await tx.objectDefinition.findFirst({ where: { slug: newSlug, id: { not: id } }, select: { id: true } });
+      if (!clash) {
+        await cascadeObjectSlug(tx, def.slug, newSlug);
+        finalSlug = newSlug;
+      }
+    }
+    await tx.objectDefinition.update({ where: { id }, data: { nameSingular, namePlural } });
   });
   revalidatePath("/app/objects");
-  if (slug) revalidatePath(`/app/objects/${slug}`);
+  revalidatePath("/app/settings/properties/all");
+  if (finalSlug) revalidatePath(`/app/objects/${finalSlug}`);
+}
+
+/**
+ * One-shot: bring every object slug and custom-field key in the workspace into
+ * the canonical camelCase / singular scheme, cascading references and migrating
+ * stored record values. Idempotent — already-canonical identifiers are skipped.
+ */
+export async function normalizeIdentifiers(): Promise<void> {
+  const ctx = await requireAuth();
+  if (!canManageWorkspace(ctx.role)) return;
+  await withTenant(ctx.workspaceId, async (tx) => {
+    // Objects first: slug ← camelKey(nameSingular), cascaded through references.
+    const defs = await tx.objectDefinition.findMany();
+    for (const def of defs) {
+      const newSlug = slugFromName(def.nameSingular);
+      if (newSlug === def.slug || RESERVED_SLUGS.includes(newSlug)) continue;
+      const clash = await tx.objectDefinition.findFirst({ where: { slug: newSlug, id: { not: def.id } }, select: { id: true } });
+      if (clash) continue;
+      await cascadeObjectSlug(tx, def.slug, newSlug);
+    }
+    // Then fields (reloaded — object_type may have just changed): key ← camelKey(label).
+    const fields = await tx.customFieldDef.findMany();
+    for (const f of fields) {
+      const newKey = keyFromLabel(f.label);
+      if (newKey === f.key) continue;
+      const meta = await getObjectMeta(tx, f.objectType);
+      if (meta?.reservedKeys.includes(newKey)) continue;
+      const clash = await tx.customFieldDef.findFirst({
+        where: { objectType: f.objectType, key: newKey, id: { not: f.id } },
+        select: { id: true },
+      });
+      if (clash) continue;
+      await renameFieldValues(tx, f.objectType, f.objectDefinitionId, f.key, newKey);
+      await tx.customFieldDef.update({ where: { id: f.id }, data: { key: newKey } });
+    }
+  });
+  revalidatePath("/app/settings/properties/all");
+  revalidatePath("/app/objects");
 }
 
 export async function deleteObjectDefinition(id: string): Promise<void> {
@@ -195,9 +249,26 @@ export async function updateField(fieldId: string, token: string, _prev: FormSta
       // Type is immutable post-creation (avoids value migration); re-read options for that type.
       const options = readFieldOptions(field.type, formData);
       if ("error" in options) throw new Error(`OPT:${options.error}`);
+
+      // Code (key) follows the label; if it changes, migrate stored values first.
+      const meta = await getObjectMeta(tx, field.objectType);
+      const newKey = keyFromLabel(label);
+      let key = field.key;
+      if (newKey !== field.key) {
+        if (meta?.reservedKeys.includes(newKey)) throw new Error("RESERVED_KEY");
+        const clash = await tx.customFieldDef.findFirst({
+          where: { objectType: field.objectType, key: newKey, id: { not: fieldId } },
+          select: { id: true },
+        });
+        if (clash) throw new Error("DUPLICATE_KEY");
+        await renameFieldValues(tx, field.objectType, field.objectDefinitionId, field.key, newKey);
+        key = newKey;
+      }
+
       await tx.customFieldDef.update({
         where: { id: fieldId },
         data: {
+          key,
           label,
           required: isRelationType(field.type) ? false : required,
           defaultValue: supportsDefault(field.type) ? defaultValue : null,
@@ -207,10 +278,13 @@ export async function updateField(fieldId: string, token: string, _prev: FormSta
     });
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("OPT:")) return { error: e.message.slice(4) };
+    if (e instanceof Error && e.message === "RESERVED_KEY") return { error: "That name clashes with a built-in field. Pick another." };
+    if (e instanceof Error && e.message === "DUPLICATE_KEY") return { error: "Another property on this object already uses that name." };
     console.error("updateField failed", e);
     return { error: "Could not update the field." };
   }
   revalidateForToken(token);
+  revalidatePath("/app/settings/properties/all");
   return {};
 }
 
