@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ArrowUp, ArrowDown, Boxes } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowDown, Boxes, List } from "lucide-react";
 import { requireAuth, canManageWorkspace } from "@/lib/auth";
 import { withTenant } from "@/lib/tenant";
 import { deleteField, reorderField } from "@/lib/actions/objects";
@@ -49,6 +49,11 @@ export default async function PropertiesSettingsPage({
             <Link href="/app/settings">
               <Button variant="ghost" className="gap-2">
                 <ArrowLeft className="h-4 w-4" /> Settings
+              </Button>
+            </Link>
+            <Link href="/app/settings/properties/all">
+              <Button variant="outline" className="gap-2">
+                <List className="h-4 w-4" /> All properties
               </Button>
             </Link>
             <Link href="/app/objects">

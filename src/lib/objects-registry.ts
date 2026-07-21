@@ -58,6 +58,62 @@ export function isCoreToken(token: string): boolean {
   return CORE_BY_TOKEN.has(token);
 }
 
+/** A built-in column on a core object — shown read-only alongside custom fields. */
+export interface BuiltinField {
+  key: string;
+  label: string;
+  type: string; // a FieldType key, for label/badge rendering
+  required?: boolean;
+  target?: string; // relation target token, display only
+}
+
+/** Standard (non-removable) columns per core object, in display order. */
+export const BUILTIN_FIELDS: Record<string, BuiltinField[]> = {
+  contact: [
+    { key: "firstName", label: "First name", type: "text" },
+    { key: "lastName", label: "Last name", type: "text" },
+    { key: "email", label: "Email", type: "email" },
+    { key: "phone", label: "Phone", type: "phone" },
+    { key: "jobTitle", label: "Job title", type: "text" },
+    { key: "companyId", label: "Company", type: "relation", target: "company" },
+    { key: "tags", label: "Tags", type: "multi_select" },
+    { key: "ownerId", label: "Owner", type: "relation", target: "member" },
+    { key: "dnd", label: "Do not disturb", type: "boolean" },
+    { key: "engagementScore", label: "Engagement score", type: "number" },
+  ],
+  company: [
+    { key: "name", label: "Name", type: "text", required: true },
+    { key: "domain", label: "Domain", type: "url" },
+    { key: "industry", label: "Industry", type: "text" },
+  ],
+  deal: [
+    { key: "title", label: "Title", type: "text", required: true },
+    { key: "amount", label: "Amount", type: "currency" },
+    { key: "currency", label: "Currency", type: "text" },
+    { key: "status", label: "Status", type: "select" },
+    { key: "pipelineId", label: "Pipeline", type: "relation", target: "pipeline" },
+    { key: "stageId", label: "Stage", type: "relation", target: "stage" },
+    { key: "companyId", label: "Company", type: "relation", target: "company" },
+    { key: "contactIds", label: "Contacts", type: "relations", target: "contact" },
+    { key: "expectedCloseAt", label: "Expected close", type: "date" },
+  ],
+  task: [
+    { key: "title", label: "Title", type: "text", required: true },
+    { key: "body", label: "Description", type: "rich_text" },
+    { key: "status", label: "Status", type: "select" },
+    { key: "dueAt", label: "Due date", type: "date" },
+    { key: "assigneeId", label: "Assignee", type: "relation", target: "member" },
+  ],
+  note: [
+    { key: "body", label: "Body", type: "rich_text", required: true },
+  ],
+};
+
+/** Built-in columns for a token (empty for custom objects). */
+export function listBuiltinFields(token: string): BuiltinField[] {
+  return BUILTIN_FIELDS[token] ?? [];
+}
+
 /** All objects (core + custom) — for the field-settings object picker. */
 export async function listObjects(tx: Prisma.TransactionClient): Promise<ObjectMeta[]> {
   const defs = await tx.objectDefinition.findMany({ orderBy: { nameSingular: "asc" } });
