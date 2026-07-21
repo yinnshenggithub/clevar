@@ -47,7 +47,7 @@ export interface AgentDefaults {
   playbook?: { scenario: string; response: string }[] | null;
   examples?: { user: string; assistant: string }[] | null;
   profileFields?: string[] | null;
-  intakeFields?: string[] | null;
+  intakeFields?: { key: string; required: boolean }[] | null;
   handoffTriggers?: HandoffTriggersConfig | null;
 }
 
@@ -208,7 +208,7 @@ export function AgentForm({
     (defaults?.examples ?? []).map((p) => ({ a: p.user, b: p.assistant })),
   );
   const [profileFields, setProfileFields] = useState<string[]>(defaults?.profileFields ?? []);
-  const [intakeFields, setIntakeFields] = useState<string[]>(defaults?.intakeFields ?? []);
+  const [intakeFields, setIntakeFields] = useState<{ key: string; required: boolean }[]>(defaults?.intakeFields ?? []);
   const [intakePick, setIntakePick] = useState<string>("");
   const langDefault = defaults?.languagePolicy ?? "mirror";
   const [langMode, setLangMode] = useState<"mirror" | "fixed">(langDefault.startsWith("fixed:") ? "fixed" : "mirror");
@@ -480,22 +480,28 @@ export function AgentForm({
       {/* Required intake */}
       <div className="space-y-4">
         <div>
-          <SectionTitle>Required intake</SectionTitle>
+          <SectionTitle>Collect properties</SectionTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Properties the agent must collect before it answers anything else. While any are missing, the agent
-            withholds product help and asks for them in order, storing each answer. Leave empty to disable.
+            Details the agent tries to gather in conversation. <strong>Optional</strong> = asked lightly, one at a
+            time, dropped if the customer declines (never pushy). <strong>Required</strong> = the agent won&apos;t
+            answer other questions until it&apos;s collected. Leave empty to disable.
           </p>
         </div>
         {intakeFields.length > 0 && (
           <ol className="space-y-1">
-            {intakeFields.map((q, i) => {
-              const label = catalog.find((c) => c.qualified === q)?.label ?? q;
+            {intakeFields.map((f, i) => {
+              const label = catalog.find((c) => c.qualified === f.key)?.label ?? f.key;
               return (
-                <li key={q} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                <li key={f.key} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
                   <span className="text-muted-foreground">{i + 1}.</span>
                   <span className="min-w-0 flex-1 truncate">
-                    {label} <code className="ml-1 rounded bg-muted px-1 font-mono text-xs">{q}</code>
+                    {label} <code className="ml-1 rounded bg-muted px-1 font-mono text-xs">{f.key}</code>
                   </span>
+                  <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                    <input type="checkbox" className="h-3.5 w-3.5" checked={f.required}
+                      onChange={(e) => setIntakeFields((cur) => cur.map((x) => (x.key === f.key ? { ...x, required: e.target.checked } : x)))} />
+                    Required
+                  </label>
                   <button type="button" aria-label="Move up" disabled={i === 0}
                     className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30"
                     onClick={() => setIntakeFields((cur) => { const a = [...cur]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; return a; })}>↑</button>
@@ -504,7 +510,7 @@ export function AgentForm({
                     onClick={() => setIntakeFields((cur) => { const a = [...cur]; [a[i + 1], a[i]] = [a[i], a[i + 1]]; return a; })}>↓</button>
                   <button type="button" aria-label="Remove"
                     className="rounded p-1 text-destructive hover:bg-accent"
-                    onClick={() => setIntakeFields((cur) => cur.filter((x) => x !== q))}>✕</button>
+                    onClick={() => setIntakeFields((cur) => cur.filter((x) => x.key !== f.key))}>✕</button>
                 </li>
               );
             })}
@@ -518,14 +524,14 @@ export function AgentForm({
           >
             <option value="">Add a property to collect…</option>
             {catalog
-              .filter((c) => !intakeFields.includes(c.qualified))
+              .filter((c) => !intakeFields.some((f) => f.key === c.qualified))
               .map((c) => (
                 <option key={c.qualified} value={c.qualified}>{c.label} — {c.qualified}</option>
               ))}
           </select>
           <Button type="button" variant="outline" size="sm" className="gap-1"
             disabled={!intakePick}
-            onClick={() => { if (intakePick) { setIntakeFields((cur) => [...cur, intakePick]); setIntakePick(""); } }}>
+            onClick={() => { if (intakePick) { setIntakeFields((cur) => [...cur, { key: intakePick, required: false }]); setIntakePick(""); } }}>
             <Plus className="h-3.5 w-3.5" /> Add
           </Button>
         </div>

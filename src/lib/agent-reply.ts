@@ -20,7 +20,7 @@ import {
   type PromptConfig,
   type RetrievedPassage,
 } from "./agent-prompt";
-import { computeIntake, intakeDirective } from "./agent-intake";
+import { computeIntake, intakeDirective, intakeSoftDirective, normalizeIntake } from "./agent-intake";
 import { screenInbound, screenOutbound, validateCitations } from "./agent-guard";
 import { buildActionTools, type AgentActions } from "./agent-actions";
 
@@ -51,7 +51,7 @@ export function toPromptConfig(agent: any): PromptConfig {
     grounding: agent.grounding ?? "strict",
     refusalLine: agent.refusalLine ?? null,
     languagePolicy: agent.languagePolicy ?? "mirror",
-    intakeFields: asStringArray(agent.intakeFields),
+    intakeFields: normalizeIntake(agent.intakeFields),
   };
 }
 
@@ -341,18 +341,19 @@ async function generateTurn(opts: {
   }
 
   const passages = await retrievePassages(workspaceId, agent.id, customerText);
-  const intakeFields = asStringArray(agent.intakeFields);
+  const intakeFields = normalizeIntake(agent.intakeFields);
   const intake = await computeIntake(workspaceId, contactId, intakeFields);
+  // Hard: a required field is missing → withhold knowledge, must collect first.
+  // Soft: only optional fields left → answer normally but ask for them lightly.
+  const softIntake = !intake.active && intake.optionalMissing.length > 0;
   const plan = prepareTurn({
     agent,
     history,
     customerText,
-    // Collection mode: withhold knowledge so the model can't answer product
-    // questions, and inject the imperative to collect the next field.
     passages: intake.active ? [] : passages,
     profile,
     hasKnowledge,
-    directive: intake.active ? intakeDirective(intake) : null,
+    directive: intake.active ? intakeDirective(intake) : softIntake ? intakeSoftDirective(intake) : null,
   });
 
   const { tools } = await buildActionTools({

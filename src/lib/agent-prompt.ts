@@ -45,7 +45,13 @@ export interface PromptConfig {
   grounding: string; // strict | flexible | open
   refusalLine: string | null;
   languagePolicy: string; // mirror | fixed:<lang>
-  intakeFields: string[]; // ordered object.key list to collect before assisting
+  intakeFields: IntakeField[]; // ordered fields to collect before assisting
+}
+
+/** One required-intake entry: a qualified object.key + whether it hard-blocks. */
+export interface IntakeField {
+  key: string; // object.key
+  required: boolean; // required = hard gate; optional = ask once, never block
 }
 
 export interface RetrievedPassage {

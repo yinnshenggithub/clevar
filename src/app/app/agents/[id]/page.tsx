@@ -6,6 +6,7 @@ import { withTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { updateAgent, deleteAgent } from "@/lib/actions/agents";
 import { loadPropertyCatalog } from "@/lib/agent-properties";
+import { normalizeIntake } from "@/lib/agent-intake";
 import { PageHeader } from "@/components/app/page-header";
 import { AgentForm, type AgentDefaults } from "@/components/app/agent-form";
 import { AgentTester } from "@/components/app/agent-tester";
@@ -122,7 +123,7 @@ export default async function AgentDetailPage({
                   playbook: Array.isArray(agent.playbook) ? (agent.playbook as AgentDefaults["playbook"]) : [],
                   examples: Array.isArray(agent.examples) ? (agent.examples as AgentDefaults["examples"]) : [],
                   profileFields: Array.isArray(agent.profileFields) ? (agent.profileFields as string[]) : [],
-                  intakeFields: Array.isArray(agent.intakeFields) ? (agent.intakeFields as string[]) : [],
+                  intakeFields: normalizeIntake(agent.intakeFields),
                   handoffTriggers: (agent.handoffTriggers ?? {}) as AgentDefaults["handoffTriggers"],
                 }}
                 submitLabel="Save changes"

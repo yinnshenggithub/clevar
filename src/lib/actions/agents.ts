@@ -83,6 +83,27 @@ function parsePairs(raw: FormDataEntryValue | null, keyA: string, keyB: string, 
   }
 }
 
+/** Parses the intake list: ordered {key, required} entries (accepts legacy strings). */
+function parseIntakeFields(raw: FormDataEntryValue | null, maxItems = 30): { key: string; required: boolean }[] {
+  try {
+    const arr = JSON.parse(String(raw ?? "[]"));
+    if (!Array.isArray(arr)) return [];
+    const out: { key: string; required: boolean }[] = [];
+    for (const x of arr) {
+      if (typeof x === "string") {
+        const key = x.trim().slice(0, 100);
+        if (key) out.push({ key, required: true });
+      } else if (x && typeof x === "object" && typeof x.key === "string") {
+        const key = x.key.trim().slice(0, 100);
+        if (key) out.push({ key, required: x.required !== false });
+      }
+    }
+    return out.slice(0, maxItems);
+  } catch {
+    return [];
+  }
+}
+
 const PROFILE_FIELD_KEYS = new Set(["name", "company", "email", "phone", "tags", "openDeals"]);
 
 function parseProfileFields(raw: FormDataEntryValue | null): string[] {
@@ -203,7 +224,7 @@ function agentData(
     playbook: parsePairs(formData.get("playbook"), "scenario", "response", 15),
     examples: parsePairs(formData.get("examples"), "user", "assistant", 8),
     profileFields: parseProfileFields(formData.get("profileFields")),
-    intakeFields: parseStringList(formData.get("intakeFields"), 30, 100),
+    intakeFields: parseIntakeFields(formData.get("intakeFields")),
     handoffTriggers: parseHandoffTriggers(formData.get("handoffTriggers")),
   };
 }
