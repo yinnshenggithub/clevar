@@ -3,6 +3,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { withTenant } from "./tenant";
 import type { AgentActions } from "./agent-action-defs";
+import { loadPropertyCatalog, describeCatalog, writeProperty, readProperty } from "./agent-properties";
 
 export { ACTION_DEFS, type AgentActions, type AgentActionConfig } from "./agent-action-defs";
 
@@ -26,7 +27,7 @@ function guideline(actions: AgentActions, key: string): string {
  * so testing never touches live data. `taken` accumulates human-readable
  * summaries of everything the model invoked this turn.
  */
-export function buildActionTools(opts: {
+export async function buildActionTools(opts: {
   workspaceId: string;
   conversationId?: string;
   contactId?: string | null;
@@ -34,7 +35,7 @@ export function buildActionTools(opts: {
   members: { id: string; name: string }[];
   labels: { id: string; name: string }[];
   dryRun: boolean;
-}): { tools: Record<string, any>; taken: string[] } {
+}): Promise<{ tools: Record<string, any>; taken: string[] }> {
   const { workspaceId, conversationId, contactId, actions, members, labels, dryRun } = opts;
   const taken: string[] = [];
   const tools: Record<string, any> = {};
@@ -129,19 +130,43 @@ export function buildActionTools(opts: {
   }
 
   if (enabled(actions, "contactField")) {
-    tools.update_contact_field = tool({
-      description: `Update the linked contact's details based on the conversation.${contactId ? "" : " (No contact is linked to this conversation, so this will be a no-op.)"}${guideline(actions, "contactField")}`,
+    const catalog = await loadPropertyCatalog(workspaceId);
+    const keys = catalog.map((e) => e.qualified);
+    const schema = keys.length
+      ? `Available properties (pass the exact string):\n${describeCatalog(catalog)}`
+      : "No custom properties are configured yet.";
+    const noContactNote = contactId ? "" : " (No contact is linked to this conversation, so writes are a no-op.)";
+
+    tools.set_property = tool({
+      description:
+        `Store a value the customer provides into a CRM property, addressed as object.key ` +
+        `(e.g. contact.firstName, contact.budget, project.location). Call this whenever the customer ` +
+        `gives information that maps to one of these properties, per your instructions. Company and ` +
+        `custom-object records are found or created automatically and linked to the contact.${noContactNote}` +
+        `\n\n${schema}${guideline(actions, "contactField")}`,
       parameters: z.object({
-        field: z.enum(["firstName", "lastName", "email", "phone", "jobTitle"]).describe("Which contact field to set"),
-        value: z.string().describe("The new value"),
+        property: z.string().describe("The property to set, as object.key (must be one of the available properties)"),
+        value: z.string().describe("The value to store"),
       }),
-      execute: async ({ field, value }) => {
-        taken.push(`Set contact ${field} = ${value}`);
-        if (!live || !contactId) return `Simulated: would set contact ${field} to "${value}".`;
-        await withTenant(workspaceId, (tx) =>
-          tx.contact.update({ where: { id: contactId }, data: { [field]: value } }),
-        );
-        return `Updated contact ${field}.`;
+      execute: async ({ property, value }) => {
+        taken.push(`Set ${property} = ${value}`);
+        if (!live) return `Simulated: would set ${property} to "${value}".`;
+        const res = await writeProperty(workspaceId, { catalog, contactId, property, value });
+        return res.message;
+      },
+    });
+
+    tools.get_property = tool({
+      description:
+        `Read the current value of a CRM property (object.key) for the linked contact and its related ` +
+        `records — use it to check what you've already collected before asking again.\n\n${schema}`,
+      parameters: z.object({
+        property: z.string().describe("The property to read, as object.key"),
+      }),
+      execute: async ({ property }) => {
+        if (!live) return `Simulated: would read ${property}.`;
+        const res = await readProperty(workspaceId, { catalog, contactId, property });
+        return res.message;
       },
     });
   }

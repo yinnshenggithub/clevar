@@ -74,7 +74,7 @@ export async function POST(
     prisma.workspaceMember.findMany({ where: { workspaceId: ctx.workspaceId }, include: { user: { select: { id: true, fullName: true } } } }),
     withTenant(ctx.workspaceId, (tx) => tx.label.findMany({ select: { id: true, name: true } })),
   ]);
-  const { tools } = buildActionTools({
+  const { tools } = await buildActionTools({
     workspaceId: ctx.workspaceId,
     actions,
     members: members.map((m) => ({ id: m.user.id, name: m.user.fullName })),

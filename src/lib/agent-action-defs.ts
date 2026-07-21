@@ -40,9 +40,9 @@ export const ACTION_DEFS: {
   },
   {
     key: "contactField",
-    label: "Update contact fields",
-    description: "Update the linked contact's details based on the conversation.",
-    placeholder: "Update the contact's email when they provide it for a demo booking.",
+    label: "Read & update CRM properties",
+    description: "Collect and store values into any object property (contact, company, deal, and custom objects) addressed as object.key.",
+    placeholder: "Collect the customer's first name, budget, and project details, and store them in contact.firstName, contact.budget, project.name, and project.location.",
   },
   {
     key: "workflow",

@@ -338,7 +338,7 @@ async function generateTurn(opts: {
   const passages = await retrievePassages(workspaceId, agent.id, customerText);
   const plan = prepareTurn({ agent, history, customerText, passages, profile, hasKnowledge });
 
-  const { tools } = buildActionTools({
+  const { tools } = await buildActionTools({
     workspaceId,
     conversationId,
     contactId,
